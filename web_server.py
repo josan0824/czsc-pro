@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from Chan import CChan
 from ChanConfig import CChanConfig
-from Common.CEnum import AUTYPE, DATA_FIELD, DATA_SRC, KL_TYPE
+from Common.CEnum import AUTYPE, DATA_SRC, KL_TYPE
 from Plot.HtmlPlotDriver import CHtmlPlotDriver
 
 
@@ -56,14 +56,10 @@ QUICK_ITEMS = [{"code": code, "name": resolve_name} for code, resolve_name in [
 LV_OPTIONS = {
     "1m": KL_TYPE.K_1M,
     "5m": KL_TYPE.K_5M,
-    "10m": KL_TYPE.K_10M,
     "15m": KL_TYPE.K_15M,
     "30m": KL_TYPE.K_30M,
     "60m": KL_TYPE.K_60M,
     "day": KL_TYPE.K_DAY,
-}
-AGGREGATED_LEVELS = {
-    KL_TYPE.K_10M: KL_TYPE.K_5M,
 }
 
 
@@ -191,69 +187,23 @@ def make_plot_para() -> dict:
     }
 
 
-def aggregate_klines(source_kl, target_lv: KL_TYPE, source_lv: KL_TYPE):
-    if target_lv == KL_TYPE.K_10M and source_lv == KL_TYPE.K_5M:
-        group_size = 2
-    else:
-        raise ValueError(f"不支持从 {source_lv.name} 聚合到 {target_lv.name}")
-
-    aggregated = []
-    for idx in range(0, len(source_kl) - len(source_kl) % group_size, group_size):
-        group = source_kl[idx:idx + group_size]
-        from KLine.KLine_Unit import CKLine_Unit
-
-        item = CKLine_Unit({
-            DATA_FIELD.FIELD_TIME: group[-1].time,
-            DATA_FIELD.FIELD_OPEN: group[0].open,
-            DATA_FIELD.FIELD_HIGH: max(klu.high for klu in group),
-            DATA_FIELD.FIELD_LOW: min(klu.low for klu in group),
-            DATA_FIELD.FIELD_CLOSE: group[-1].close,
-            DATA_FIELD.FIELD_VOLUME: sum((klu.trade_info.metric.get(DATA_FIELD.FIELD_VOLUME) or 0) for klu in group),
-            DATA_FIELD.FIELD_TURNOVER: sum((klu.trade_info.metric.get(DATA_FIELD.FIELD_TURNOVER) or 0) for klu in group),
-            DATA_FIELD.FIELD_TURNRATE: sum((klu.trade_info.metric.get(DATA_FIELD.FIELD_TURNRATE) or 0) for klu in group),
-        })
-        item.set_idx(len(aggregated))
-        item.kl_type = target_lv
-        aggregated.append(item)
-    return aggregated
-
-
 def build_single_level_chan(code: str, lv: KL_TYPE, begin_time: str, data_src) -> CChan:
-    source_lv = AGGREGATED_LEVELS.get(lv, lv)
-    chan = CChan(
+    return CChan(
         code=code,
         begin_time=begin_time,
         end_time=None,
         data_src=data_src,
-        lv_list=[source_lv],
+        lv_list=[lv],
         config=make_config(),
         autype=AUTYPE.QFQ,
     )
-    if source_lv == lv:
-        return chan
-
-    source_kl = [klu for klc in chan[source_lv] for klu in klc.lst]
-    aggregated = aggregate_klines(source_kl, lv, source_lv)
-    agg_chan = CChan(
-        code=chan.code,
-        begin_time=begin_time,
-        end_time=None,
-        data_src=data_src,
-        lv_list=[lv],
-        config=make_config(trigger_step=True),
-        autype=AUTYPE.QFQ,
-    )
-    agg_chan.trigger_load({lv: aggregated})
-    for level in agg_chan.lv_list:
-        agg_chan.kl_datas[level].cal_seg_and_zs()
-    return agg_chan
 
 
 def build_level_nav(code: str, active_lv: KL_TYPE, days: int, source: str) -> list[dict[str, str]]:
     labels = {
         "1m": "1分钟",
         "5m": "5分钟",
-        "10m": "10分钟",
+        "15m": "15分钟",
         "30m": "30分钟",
         "60m": "60分钟",
         "day": "日线",
@@ -351,6 +301,8 @@ def index_html(host: str, port: int) -> str:
   --bg:#f5f7fa;
   --accent:#175cd3;
   --accent-soft:#eff8ff;
+  --danger:#d92d20;
+  --danger-soft:#fef3f2;
 }}
 * {{ box-sizing:border-box; }}
 body {{
@@ -407,6 +359,17 @@ button.primary {{
   background:var(--accent);
   color:#fff;
 }}
+button.auto-refresh {{
+  margin-left:38px;
+  border-color:var(--danger);
+  background:#fff;
+  color:var(--danger);
+  font-weight:700;
+}}
+button.auto-refresh.active {{
+  background:var(--danger);
+  color:#fff;
+}}
 button.quick.active {{
   border-color:var(--accent);
   background:var(--accent-soft);
@@ -446,6 +409,7 @@ iframe {{
     flex-direction:column;
   }}
   .query {{ flex-wrap:wrap; }}
+  button.auto-refresh {{ margin-left:0; }}
   .status {{ margin-left:0; }}
   iframe {{ height:calc(100vh - 190px); }}
 }}
@@ -461,7 +425,7 @@ iframe {{
         <select id="lv-select" name="lv">
           <option value="1m" selected>1分钟</option>
           <option value="5m">5分钟</option>
-          <option value="10m">10分钟</option>
+          <option value="15m">15分钟</option>
           <option value="30m">30分钟</option>
           <option value="60m">60分钟</option>
           <option value="day">日线</option>
@@ -478,6 +442,7 @@ iframe {{
           <option value="eastmoney">东方财富</option>
         </select>
         <button class="primary" type="submit">查询</button>
+        <button class="auto-refresh" id="auto-refresh-btn" type="button" aria-pressed="false" title="开市时间每10秒重新请求当前图表">自动刷新</button>
         <span class="status" id="status">入口：http://{html.escape(host)}:{port}/</span>
       </form>
     </div>
@@ -497,14 +462,32 @@ var sourceSelect = document.getElementById('source-select');
 var frame = document.getElementById('chart-frame');
 var quickList = document.getElementById('quick-list');
 var statusEl = document.getElementById('status');
+var autoRefreshBtn = document.getElementById('auto-refresh-btn');
+var autoRefreshEnabled = false;
+var autoRefreshTimer = null;
+var chartLoading = false;
 
-function buildUrl(code) {{
+function buildUrl(code, cacheBust) {{
   var params = new URLSearchParams();
   params.set('code', String(code || '').trim().toUpperCase());
   params.set('lv', lvSelect.value);
   params.set('days', daysSelect.value);
   params.set('source', sourceSelect.value);
+  if (cacheBust) params.set('_ts', Date.now());
   return 'chart?' + params.toString();
+}}
+function currentChartUrl(cacheBust) {{
+  var url;
+  try {{
+    url = new URL(frame.contentWindow.location.href);
+  }} catch (err) {{
+    url = new URL(frame.src, window.location.href);
+  }}
+  if (!url.pathname.endsWith('/chart') && url.pathname !== '/chart') {{
+    return buildUrl(codeInput.value, cacheBust);
+  }}
+  if (cacheBust) url.searchParams.set('_ts', Date.now());
+  return 'chart?' + url.searchParams.toString();
 }}
 function setActive(code) {{
   var normalized = normalizeCode(code);
@@ -529,7 +512,77 @@ function loadChart(code) {{
   codeInput.value = value;
   setActive(value);
   statusEl.textContent = '正在加载 ' + value + ' ...';
-  frame.src = buildUrl(value);
+  chartLoading = true;
+  frame.src = buildUrl(value, true);
+}}
+function getShanghaiTimeParts() {{
+  var parts = new Intl.DateTimeFormat('en-GB', {{
+    timeZone: 'Asia/Shanghai',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }}).formatToParts(new Date());
+  var result = {{}};
+  parts.forEach(function(part) {{ result[part.type] = part.value; }});
+  return result;
+}}
+function isMarketOpen() {{
+  var parts = getShanghaiTimeParts();
+  if (parts.weekday === 'Sat' || parts.weekday === 'Sun') return false;
+  var minutes = Number(parts.hour) * 60 + Number(parts.minute);
+  var morning = minutes >= 9 * 60 + 30 && minutes <= 11 * 60 + 30;
+  var afternoon = minutes >= 13 * 60 && minutes <= 15 * 60;
+  return morning || afternoon;
+}}
+function autoRefreshTick() {{
+  if (!autoRefreshEnabled) return;
+  if (!isMarketOpen()) {{
+    statusEl.textContent = '自动刷新已开启 · 非开市时间';
+    return;
+  }}
+  if (chartLoading) return;
+  chartLoading = true;
+  statusEl.textContent = '自动刷新中 ' + codeInput.value + ' ...';
+  frame.src = currentChartUrl(true);
+}}
+function setAutoRefresh(enabled) {{
+  autoRefreshEnabled = enabled;
+  autoRefreshBtn.classList.toggle('active', enabled);
+  autoRefreshBtn.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+  autoRefreshBtn.textContent = enabled ? '停止刷新' : '自动刷新';
+  if (autoRefreshTimer) {{
+    clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+  }}
+  if (enabled) {{
+    statusEl.textContent = isMarketOpen() ? '自动刷新已开启 · 每10秒刷新' : '自动刷新已开启 · 非开市时间';
+    autoRefreshTimer = setInterval(autoRefreshTick, 10000);
+  }} else {{
+    statusEl.textContent = '自动刷新已关闭';
+  }}
+}}
+function syncControlsFromFrame() {{
+  try {{
+    var url = new URL(frame.contentWindow.location.href);
+    var code = url.searchParams.get('code');
+    var lv = url.searchParams.get('lv');
+    var days = url.searchParams.get('days');
+    var source = url.searchParams.get('source');
+    if (code) {{
+      codeInput.value = code.toUpperCase();
+      setActive(code);
+    }}
+    if (lv && Array.prototype.some.call(lvSelect.options, function(option) {{ return option.value === lv; }})) {{
+      lvSelect.value = lv;
+    }}
+    if (days && Array.prototype.some.call(daysSelect.options, function(option) {{ return option.value === days; }})) {{
+      daysSelect.value = days;
+    }}
+    if (source && Array.prototype.some.call(sourceSelect.options, function(option) {{ return option.value === source; }})) {{
+      sourceSelect.value = source;
+    }}
+  }} catch (err) {{}}
 }}
 quickItems.forEach(function(item) {{
   var btn = document.createElement('button');
@@ -546,7 +599,12 @@ form.addEventListener('submit', function(e) {{
   loadChart(codeInput.value);
 }});
 frame.addEventListener('load', function() {{
+  chartLoading = false;
+  syncControlsFromFrame();
   statusEl.textContent = '已加载 ' + codeInput.value + ' · ' + lvSelect.options[lvSelect.selectedIndex].text;
+}});
+autoRefreshBtn.addEventListener('click', function() {{
+  setAutoRefresh(!autoRefreshEnabled);
 }});
 setActive('{DEFAULT_CODE}');
 </script>

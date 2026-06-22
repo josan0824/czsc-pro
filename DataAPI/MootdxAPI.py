@@ -167,7 +167,6 @@ class CMootdx(CCommonStockApi):
         per_day = {
             KL_TYPE.K_1M: 240,
             KL_TYPE.K_5M: 48,
-            KL_TYPE.K_10M: 24,
             KL_TYPE.K_15M: 16,
             KL_TYPE.K_30M: 8,
             KL_TYPE.K_60M: 4,
