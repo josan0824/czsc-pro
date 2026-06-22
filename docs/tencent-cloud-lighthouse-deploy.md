@@ -1768,3 +1768,63 @@ journalctl -u czsc-chart -n 100 --no-pager
 [ ] 8899 没有在腾讯云防火墙中开放
 [ ] reboot 后 czsc-chart 和 nginx 自动恢复
 ```
+
+---
+
+## 21. czsc-pro 代码更新后的执行命令
+
+当 `czsc-pro` 仓库代码有更新后，在服务器上执行以下命令即可更新并重启图表服务。
+
+进入项目目录：
+
+```bash
+cd /opt/czsc-pro
+```
+
+拉取最新代码：
+
+```bash
+git pull
+```
+
+如果本次更新改动了 Python 依赖，例如 `Script/requirements.txt` 有变化，重新安装依赖：
+
+```bash
+source .venv/bin/activate
+pip install -r Script/requirements.txt
+```
+
+重启 `czsc-chart` 服务：
+
+```bash
+sudo systemctl restart czsc-chart
+sudo systemctl status czsc-chart
+```
+
+如果状态不是 `active (running)`，查看日志：
+
+```bash
+journalctl -u czsc-chart -n 100 --no-pager
+```
+
+本机验证：
+
+```bash
+curl -I http://127.0.0.1:8899/
+curl -I "http://127.0.0.1:8899/chart?code=SH000001&lv=1m&days=5&source=mootdx"
+```
+
+公网验证：
+
+```text
+http://你的公网IP/chan-chart/
+```
+
+如果只更新了 Python 代码或前端 HTML 生成逻辑，通常只需要：
+
+```bash
+cd /opt/czsc-pro
+git pull
+sudo systemctl restart czsc-chart
+sudo systemctl status czsc-chart
+```
