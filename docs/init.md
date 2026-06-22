@@ -1,5 +1,5 @@
 <p align="center">
-<img src="./Image/chan.py_image_1.svg" width="300"/>
+<img src="../Image/chan.py_image_1.svg" width="300"/>
 </p>
 
 ```
@@ -14,12 +14,12 @@
 <p><a href="https://github.com/Vespa314/chan.py/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/Vespa314/chan.py" /></a></p>
 
 - 讨论组：<a href="https://t.me/zen_python">Telegram</a>
-- [快速上手指南](./quick_guide.md)
+- [快速上手指南](../quick_guide.md)
 
 
 **特别说明①**：当前公开部分代码暂时只包含基本的静态计算能力，暂未包含策略类，特征，模型，automl框架，交易引擎对接等；
 
-完整代码22000行左右，公开版约5300行；本README对应的是完整版(可能在某些地方使用上和公开版本代码不一致)，尽量参考[快速上手指南](./quick_guide.md)；
+完整代码22000行左右，公开版约5300行；本README对应的是完整版(可能在某些地方使用上和公开版本代码不一致)，尽量参考[快速上手指南](../quick_guide.md)；
 
 如有使用疑惑，欢迎讨论/邮件联系。
 
@@ -305,16 +305,16 @@
 
 比如下图表述的就是 1，2，3 类 bsp：
 
-<img src="./Image/chan.py_image_2.png" />
+<img src="../Image/chan.py_image_2.png" />
 而下图则是由某简易策略计算出来的 cbsp，本框架中一般用虚线表示，如果前面有个 `√`，表示最后回过头来看，这个 cbsp 是找对了；
 
-<img src="./Image/chan.py_image_3.png" />
+<img src="../Image/chan.py_image_3.png" />
 
 - segseg：字段命名为线段的线段，可以理解成把线段当成笔，算出其相应的线段结构；实际上可以当成父级别的线段；
 - segbsp：即 segseg 对应的买卖点（形态学上的）；
 - segzs：即 segseg 对应的中枢
 
-<img src="./Image/chan.py_image_4.png" />
+<img src="../Image/chan.py_image_4.png" />
 
 ### 使用 demo
 ```python
@@ -390,9 +390,9 @@ else:  # 绘制动画
 - 单幅图使用 `CPlotDriver`
 - 如果需要看回放动画，则使用 `CAnimateDriver`
 
-<img src="./Image/chan.py_image_5.png" />
+<img src="../Image/chan.py_image_5.png" />
 
-<img src="./Image/chan.py_image_6.gif" />
+<img src="../Image/chan.py_image_6.gif" />
 
 ### CChan 类介绍
 核心缠论信息计算类 CChan 接受参数包括：
@@ -651,7 +651,7 @@ CPlotDriver 和 CAnimateDriver 参数，用于控制绘制哪些元素
     - x_tick_num: 10 横坐标有多少个tick显示日期
     - grid：xy  绘制网格，x/y/xy/None 分别是只画横轴，纵轴，都画，不画
 
-<img src="./Image/chan.py_image_7.png" />
+<img src="../Image/chan.py_image_7.png" />
 
 - kl: k 线相关
     - width: 0.4  宽度
@@ -661,7 +661,7 @@ CPlotDriver 和 CAnimateDriver 参数，用于控制绘制哪些元素
     - width: 0.4  宽度
     - plot_single_kl: True  合并K线只包含一根 k 线是否需要画框
 
-<img src="./Image/chan.py_image_8.png" />
+<img src="../Image/chan.py_image_8.png" />
 
 - bi：笔(虚线表示还没确定的笔)
     - color: 'black'  笔颜色
@@ -692,8 +692,8 @@ CPlotDriver 和 CAnimateDriver 参数，用于控制绘制哪些元素
     - num_color: 'blue'  序号颜色
     - num_fontsize: 30  序号字体大小
 
-<img src="./Image/chan.py_image_10.png" />
-<img src="./Image/chan_trendline.png" />
+<img src="../Image/chan.py_image_10.png" />
+<img src="../Image/chan_trendline.png" />
 
 - zs:  中枢
     - color: 'orange'  颜色
@@ -704,7 +704,7 @@ CPlotDriver 和 CAnimateDriver 参数，用于控制绘制哪些元素
     - text_color: 'orange'  高低点数值颜色
     - draw_one_bi_zs: False  绘制只有 1 笔的中枢
 
-<img src="./Image/chan.py_image_11.png" />
+<img src="../Image/chan.py_image_11.png" />
 
 - eigen/segeigen:  特征序列（`CChanConfig` 中 `seg_algo` 设置为 `chan` 时有效）
     - color_top: 'r'  顶分型颜色
@@ -712,7 +712,7 @@ CPlotDriver 和 CAnimateDriver 参数，用于控制绘制哪些元素
     - aplha: 0.5  透明度
     - only_peak: False  只画顶底分型第二元素
 
-<img src="./Image/chan.py_image_12.png" />
+<img src="../Image/chan.py_image_12.png" />
 
 - bsp:  形态学买卖点，实线表示，
     - buy_color: 'r'  买点颜色
@@ -733,7 +733,7 @@ CPlotDriver 和 CAnimateDriver 参数，用于控制绘制哪些元素
     - only_segbsp: False  只标示出来同时是线段买卖点的 cbsp
     - show_profit: True  显示收益率（需要开启 `CChanConfig` 中 `cal_cover`）
 
-<img src="./Image/plot_cbsp.png" />
+<img src="../Image/plot_cbsp.png" />
 
 - segseg:  线段的线段
     - width: 7  宽度
@@ -753,14 +753,14 @@ CPlotDriver 和 CAnimateDriver 参数，用于控制绘制哪些元素
     - arrow_h: 0.25  箭头头部占箭头长度比例
     - arrow_w: 1.2  箭头宽度
 
-<img src="./Image/chan.py_image_13.png" />
+<img src="../Image/chan.py_image_13.png" />
 
 - boll:  布林线（必须先配置 `boll_n`）
     - mid_color: 'black'  中轨线颜色
     - up_color: 'blue'  上轨线颜色
     - down_color: 'purple'  下轨线颜色
 
-<img src="./Image/chan.py_image_14.png" />
+<img src="../Image/chan.py_image_14.png" />
 
 - channel:  上下轨道
     - T: None  T 天内的上下轨道，必须在 `CChanConfig.trend_metrics` 中出现，如果为 None，则为 `CChanConfig.trend_metrics` 的最大值
@@ -769,16 +769,16 @@ CPlotDriver 和 CAnimateDriver 参数，用于控制绘制哪些元素
     - linewidth: 3  轨道线宽度
     - linestyle: 'solid'  轨道线类型
 
-<img src="./Image/chan.py_image_15.png" />
+<img src="../Image/chan.py_image_15.png" />
 
 - mean：均线，无可配置参数
 
-<img src="./Image/chan.py_image_16.png" />
+<img src="../Image/chan.py_image_16.png" />
 
 - macd:
     - width: 0.4  红绿柱宽度
 
-<img src="./Image/chan.py_image_17.png" />
+<img src="../Image/chan.py_image_17.png" />
 
 - tradeinfo: K线指标
     - plot_curve: True  绘制指标
@@ -795,7 +795,7 @@ CPlotDriver 和 CAnimateDriver 参数，用于控制绘制哪些元素
     - plot_od_score: False  绘制离群值
     - od_score_color: 'k'  离群值颜色
 
-<img src="./Image/chan.py_image_18.png" />
+<img src="../Image/chan.py_image_18.png" />
 
 - marker: 在指定日期K线上自定义文本标记
     - markers: 文本描述，字典
@@ -809,7 +809,7 @@ CPlotDriver 和 CAnimateDriver 参数，用于控制绘制哪些元素
     - fontsize: 字体，默认14
     - default_color: 默认颜色，默认为'b'
 
-<img src="./Image/marker.png" />
+<img src="../Image/marker.png" />
 
 - demark: 德马克/demark指标
     - setup_color: setup序号颜色，默认为'b'
@@ -820,7 +820,7 @@ CPlotDriver 和 CAnimateDriver 参数，用于控制绘制哪些元素
     - begin_line_color: setup真实起始位置线颜色，默认为'purple'
     - begin_line_style: setup真实起始位置线类型，默认为虚线'dashed'
 
-<img src="./Image/demark.png" />
+<img src="../Image/demark.png" />
 
 - rsi: RSI指标
     - color: 颜色，默认为b
@@ -837,7 +837,7 @@ CPlotDriver 和 CAnimateDriver 参数，用于控制绘制哪些元素
 - over_seg: 跨段中枢
 - auto: 对于确定的线段，采用normal算法，不确定部分用over_seg
 
-<img src="./Image/zs_algo.png" />
+<img src="../Image/zs_algo.png" />
 
 #### 段内中枢
 中枢满足：
@@ -887,7 +887,7 @@ CPlotDriver 和 CAnimateDriver 参数，用于控制绘制哪些元素
 ### 默认特征情况
 框架默认提供 400+特征：
 
-<img src="./Image/feature_cnt.png" />
+<img src="../Image/feature_cnt.png" />
 
 ## 交易系统
 本框架暂时只实现了对接 futu 交易系统；原因也比较简单，接入门槛低，而且提供非常完善的 API，可以一键切换模拟盘 & 实盘；
@@ -1147,7 +1147,7 @@ def cal_qjt_bsp(self, data: CKLine_List, sub_lv_data: CKLine_List) -> Optional[C
 
 下图中次级别是父级别绿线部分的走势，可以看得出来次级别已经逐渐背驰了，所以在最后一个背驰点产生了父级别的买卖点：
 
-<img src="./Image/chan_qujiantao.png" />
+<img src="../Image/chan_qujiantao.png" />
 
 ### 模型类
 #### 模型开发
@@ -1277,7 +1277,7 @@ class CXGB_DataSet(CDataSet):
 实现了上面两个类之后：
 - 调用 `CModelGenerator.trainProcess()` 即可实现对买卖类型，不同地区股票不同买卖类型，不同买卖点进行训练生成模型和评估结果；
 
-<img src="./Image/summary_b_us_test.png" />
+<img src="../Image/summary_b_us_test.png" />
 
 - 调用 `CModelGenerator.PredictProcess()` 即可实现对回测特征文件全部或部分进行预测
 - 调用 `CModelGenerator.predictAllProcess()` 即可用所有模型对回测特征文件进行打分，并生成所需要的分数，特征文件，可以直接对接到本框架提供的 automl 方法中；
@@ -1350,12 +1350,12 @@ print(plot_driver.Upload2COS())
 
 交易引擎已内嵌实现了该调用：
 
-<img src="./Image/open_send_msg.png" width="200" />
+<img src="../Image/open_send_msg.png" width="200" />
 
 ### Notion
 如果在`config.yaml`中配置了Notion相关的信息，例行脚本中会调用`Script/Notion/DB_sync_Notion.py`将已开仓过的股票的操作数据同步至Notion制定的表中；并且会把开仓图片嵌入对应的页面中；
 
-<img src="./Image/notion_table.png" />
+<img src="../Image/notion_table.png" />
 
 ### 试题功能
 此功能源于网上大家提到的一个问题：走势为什么往往是走出来之后才恍然大悟；
@@ -1385,11 +1385,11 @@ Q.PlotAnswerFigure()
 
 绘制的题目效果如下：
 
-<img src="./Image/question_pic.png" />
+<img src="../Image/question_pic.png" />
 
 答案效果如下：
 
-<img src="./Image/answer_pic.png" />
+<img src="../Image/answer_pic.png" />
 
 > 如果有自定义绘制开发需求，可以直接修改`ExamGenerator.py`文件，就三个函数。。。如果有人对这个感兴趣，回头可以做成一个APP/小程序/网页供大家玩耍。
 
@@ -1422,7 +1422,7 @@ Q.PlotAnswerFigure()
 
 然后，第二版应运而生，就是重零开始从头开发；继而实现了这个框架里的大部分功能，除了缠论最基本的笔段，买卖点，自定义动力学策略，甚至到了特征，Automl，模型，并对接了富途的交易 API，上线了一个自己开发的策略后在模拟盘纯自动地跑了两个月；
 
-<img src="./Image/futu_sim_snapshot.png" width="200"/>
+<img src="../Image/futu_sim_snapshot.png" width="200"/>
 
 V2 就是最早发上 github 的这一版，这一版有个很严重的问题，因为 V2 堆了太多功能，且不说代码 hardcode 了太多东西（比如各种文件路径啥的），可扩展性比较差，上一个新策略都要改动和调试很多文件（这也就是 V2 github 上很多文件没公开的原因）；而且交易系统那里更是完全对接了自己服务器的各种环境，无法服用；
 
@@ -1430,20 +1430,20 @@ V2 就是最早发上 github 的这一版，这一版有个很严重的问题，
 
 整个项目回过头来看还是很有成就感的，由于个人原因，不太喜欢直接用太多外部的库，所以这个项目里面很多很基础的东西都是手动实现的，比如 MACD，布林线，趋势线，所有画图元素和逐帧动画，回测评估, automl等；
 
-<img src="./Image/repository.png" />
+<img src="../Image/repository.png" />
 
 至今为止，总代码行19000+行，下图是至今为止的开发时间热力图，显示花了615个小时，但估计总体应该超过700个小时了，因为花在 jupyterlab 上画图调试的时间无法算在里面；V3的重构也差不多花了300个小时了；
 
-<img src="./Image/chan_coding_time.png" />
+<img src="../Image/chan_coding_time.png" />
 
 总共提了差不多196个 issue，1229+次commit：
 
-<img src="./Image/chan_issue_cnt.png" />
-<img src="./Image/chan_commit_cnt.png" />
+<img src="../Image/chan_issue_cnt.png" />
+<img src="../Image/chan_commit_cnt.png" />
 
 最近这两周一边上模拟盘跑（A股美股港股全部股票都是候选股票，纯自动化，下图是接入自己的推送系统显示的消息），一边优化+修bug，离最终形态大概已经完成了99%了，总体上使用体验符合预期；
 
-<img src="./Image/chan_gotify_info.png" width="500"/>
+<img src="../Image/chan_gotify_info.png" width="500"/>
 
 不过我还有一个很想实现但是完全没法开工的远景，就是上面这些绘图的功能全部搬上web端，并且实现可交互，无奈我并不懂这些东西，时间上也不太允许；
 
@@ -1473,11 +1473,11 @@ class COpenQuotaGen:
 
 #### 港股
 
-<img src="./Image/hk_sim_result.jpeg" width="300"/>
+<img src="../Image/hk_sim_result.jpeg" width="300"/>
 
 #### 美股
 
-<img src="./Image/us_sim_result.jpeg" width="300"/>
+<img src="../Image/us_sim_result.jpeg" width="300"/>
 
 效果看起来还行，不过我并不太确定是大行情问题还是策略问题，所以还需要再观察观察；
 
@@ -1491,7 +1491,7 @@ class COpenQuotaGen:
 ## 咖啡？NO!
 如果你觉得这个项目对你有帮助或有启发，可以请我喝一杯。。额。。咖啡和牛奶以外的东西，毕竟我喝这两种会拉肚子。。
 
-<img src="./Image/coffee.jpeg" width="300"/>
+<img src="../Image/coffee.jpeg" width="300"/>
 
 运行方式：
 PYTHONPYCACHEPREFIX=/private/tmp/chan_pycache MPLCONFIGDIR=/Users/josan/Downloads/chan.py-main/.matplotlib_cache /opt/homebrew/bin/python3.11 main.py
