@@ -1,4 +1,5 @@
 import json
+import math
 import os
 from pathlib import Path
 
@@ -127,7 +128,7 @@ class CMootdx(CCommonStockApi):
     def __fetch_bars_from_current_server(self):
         frequency = self.__convert_type()
         chunks = []
-        for page in range(10):
+        for page in range(self.__max_pages()):
             start = page * 800
             try:
                 df = self.__request_bars(frequency=frequency, start=start)
@@ -155,6 +156,26 @@ class CMootdx(CCommonStockApi):
         if not chunks:
             return pd.DataFrame()
         return pd.concat(chunks, ignore_index=False)
+
+    def __max_pages(self):
+        if not self.begin_date:
+            return 10
+        begin = pd.to_datetime(self.begin_date, errors="coerce")
+        if pd.isna(begin):
+            return 10
+        days = max(1, (pd.Timestamp.now().normalize() - begin.normalize()).days + 1)
+        per_day = {
+            KL_TYPE.K_1M: 240,
+            KL_TYPE.K_5M: 48,
+            KL_TYPE.K_10M: 24,
+            KL_TYPE.K_15M: 16,
+            KL_TYPE.K_30M: 8,
+            KL_TYPE.K_60M: 4,
+            KL_TYPE.K_DAY: 1,
+            KL_TYPE.K_WEEK: 1 / 5,
+            KL_TYPE.K_MON: 1 / 22,
+        }.get(self.k_type, 240)
+        return max(1, min(10, math.ceil(days * per_day / 800) + 1))
 
     def __request_bars(self, frequency, start):
         if self.is_index:
@@ -251,6 +272,6 @@ class CMootdx(CCommonStockApi):
             bestip=False,
             multithread=True,
             heartbeat=True,
-            timeout=8,
+            timeout=3,
         )
         cls.current_server = server

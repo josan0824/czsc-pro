@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from Chan import CChan
 from ChanConfig import CChanConfig
-from Common.CEnum import AUTYPE, DATA_SRC, KL_TYPE
+from Common.CEnum import AUTYPE, DATA_FIELD, DATA_SRC, KL_TYPE
 from Plot.HtmlPlotDriver import CHtmlPlotDriver
 
 
@@ -56,10 +56,14 @@ QUICK_ITEMS = [{"code": code, "name": resolve_name} for code, resolve_name in [
 LV_OPTIONS = {
     "1m": KL_TYPE.K_1M,
     "5m": KL_TYPE.K_5M,
+    "10m": KL_TYPE.K_10M,
     "15m": KL_TYPE.K_15M,
     "30m": KL_TYPE.K_30M,
     "60m": KL_TYPE.K_60M,
     "day": KL_TYPE.K_DAY,
+}
+AGGREGATED_LEVELS = {
+    KL_TYPE.K_10M: KL_TYPE.K_5M,
 }
 
 
@@ -140,11 +144,11 @@ def parse_source(value: str):
     raise ValueError(f"不支持的数据源: {value}")
 
 
-def make_config() -> CChanConfig:
+def make_config(trigger_step: bool = False) -> CChanConfig:
     return CChanConfig({
         "bi_strict": True,
         "bi_fx_check": "totally",
-        "trigger_step": False,
+        "trigger_step": trigger_step,
         "skip_step": 0,
         "divergence_rate": float("inf"),
         "bsp2_follow_1": False,
@@ -187,6 +191,89 @@ def make_plot_para() -> dict:
     }
 
 
+def aggregate_klines(source_kl, target_lv: KL_TYPE, source_lv: KL_TYPE):
+    if target_lv == KL_TYPE.K_10M and source_lv == KL_TYPE.K_5M:
+        group_size = 2
+    else:
+        raise ValueError(f"不支持从 {source_lv.name} 聚合到 {target_lv.name}")
+
+    aggregated = []
+    for idx in range(0, len(source_kl) - len(source_kl) % group_size, group_size):
+        group = source_kl[idx:idx + group_size]
+        from KLine.KLine_Unit import CKLine_Unit
+
+        item = CKLine_Unit({
+            DATA_FIELD.FIELD_TIME: group[-1].time,
+            DATA_FIELD.FIELD_OPEN: group[0].open,
+            DATA_FIELD.FIELD_HIGH: max(klu.high for klu in group),
+            DATA_FIELD.FIELD_LOW: min(klu.low for klu in group),
+            DATA_FIELD.FIELD_CLOSE: group[-1].close,
+            DATA_FIELD.FIELD_VOLUME: sum((klu.trade_info.metric.get(DATA_FIELD.FIELD_VOLUME) or 0) for klu in group),
+            DATA_FIELD.FIELD_TURNOVER: sum((klu.trade_info.metric.get(DATA_FIELD.FIELD_TURNOVER) or 0) for klu in group),
+            DATA_FIELD.FIELD_TURNRATE: sum((klu.trade_info.metric.get(DATA_FIELD.FIELD_TURNRATE) or 0) for klu in group),
+        })
+        item.set_idx(len(aggregated))
+        item.kl_type = target_lv
+        aggregated.append(item)
+    return aggregated
+
+
+def build_single_level_chan(code: str, lv: KL_TYPE, begin_time: str, data_src) -> CChan:
+    source_lv = AGGREGATED_LEVELS.get(lv, lv)
+    chan = CChan(
+        code=code,
+        begin_time=begin_time,
+        end_time=None,
+        data_src=data_src,
+        lv_list=[source_lv],
+        config=make_config(),
+        autype=AUTYPE.QFQ,
+    )
+    if source_lv == lv:
+        return chan
+
+    source_kl = [klu for klc in chan[source_lv] for klu in klc.lst]
+    aggregated = aggregate_klines(source_kl, lv, source_lv)
+    agg_chan = CChan(
+        code=chan.code,
+        begin_time=begin_time,
+        end_time=None,
+        data_src=data_src,
+        lv_list=[lv],
+        config=make_config(trigger_step=True),
+        autype=AUTYPE.QFQ,
+    )
+    agg_chan.trigger_load({lv: aggregated})
+    for level in agg_chan.lv_list:
+        agg_chan.kl_datas[level].cal_seg_and_zs()
+    return agg_chan
+
+
+def build_level_nav(code: str, active_lv: KL_TYPE, days: int, source: str) -> list[dict[str, str]]:
+    labels = {
+        "1m": "1分钟",
+        "5m": "5分钟",
+        "10m": "10分钟",
+        "30m": "30分钟",
+        "60m": "60分钟",
+        "day": "日线",
+    }
+    items = []
+    for lv_key, label in labels.items():
+        params = urlencode({
+            "code": compact_code(code),
+            "lv": lv_key,
+            "days": str(days),
+            "source": source,
+        })
+        items.append({
+            "label": label,
+            "href": f"chart?{params}",
+            "active": parse_lv(lv_key) == active_lv,
+        })
+    return items
+
+
 def build_chart_html(code: str, lv_key: str, days: int, source: str = DEFAULT_SOURCE) -> str:
     normalized_code = normalize_code(code)
     lv = parse_lv(lv_key)
@@ -197,19 +284,13 @@ def build_chart_html(code: str, lv_key: str, days: int, source: str = DEFAULT_SO
         from DataAPI.MootdxAPI import CMootdx
 
         CMootdx.do_close()
-    chan = CChan(
-        code=normalized_code,
-        begin_time=begin_time,
-        end_time=None,
-        data_src=data_src,
-        lv_list=[lv],
-        config=make_config(),
-        autype=AUTYPE.QFQ,
-    )
+    chan = build_single_level_chan(normalized_code, lv, begin_time, data_src)
     html_text = CHtmlPlotDriver(
         chan,
         plot_config=make_plot_config(),
         plot_para=make_plot_para(),
+        active_lv=lv,
+        level_nav=build_level_nav(normalized_code, lv, days, source),
     ).to_html()
     chart_title = make_chart_title(normalized_code)
     escaped_code = html.escape(str(chan.code))
@@ -253,7 +334,7 @@ pre {{ white-space:pre-wrap; word-break:break-word; background:#f8fafc; border:1
 
 def index_html(host: str, port: int) -> str:
     quick_items = json.dumps(QUICK_ITEMS, ensure_ascii=False)
-    default_query = urlencode({"code": DEFAULT_CODE, "lv": "1m", "days": "60", "source": DEFAULT_SOURCE})
+    default_query = urlencode({"code": DEFAULT_CODE, "lv": "1m", "days": "250", "source": DEFAULT_SOURCE})
     chart_url = f"chart?{default_query}"
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -380,7 +461,7 @@ iframe {{
         <select id="lv-select" name="lv">
           <option value="1m" selected>1分钟</option>
           <option value="5m">5分钟</option>
-          <option value="15m">15分钟</option>
+          <option value="10m">10分钟</option>
           <option value="30m">30分钟</option>
           <option value="60m">60分钟</option>
           <option value="day">日线</option>
@@ -388,9 +469,9 @@ iframe {{
         <select id="days-select" name="days">
           <option value="5">5天</option>
           <option value="20">20天</option>
-          <option value="60" selected>60天</option>
+          <option value="60">60天</option>
           <option value="120">120天</option>
-          <option value="250">250天</option>
+          <option value="250" selected>250天</option>
         </select>
         <select id="source-select" name="source">
           <option value="mootdx" selected>通达信</option>

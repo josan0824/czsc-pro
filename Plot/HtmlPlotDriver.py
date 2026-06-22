@@ -31,10 +31,19 @@ class CHtmlPlotDriver:
     report: candlesticks, included K-line boxes, fractal markers and pens.
     """
 
-    def __init__(self, chan: CChan, plot_config: Optional[Union[str, dict, list]] = None, plot_para=None):
+    def __init__(
+        self,
+        chan: CChan,
+        plot_config: Optional[Union[str, dict, list]] = None,
+        plot_para=None,
+        active_lv: Optional[KL_TYPE] = None,
+        level_nav: Optional[List[Dict[str, str]]] = None,
+    ):
         self.chan = chan
         self.plot_config = plot_config or {}
         self.plot_para = plot_para or {}
+        self.active_lv = active_lv
+        self.level_nav = level_nav
         self.metas = [CChanPlotMeta(chan[lv]) for lv in chan.lv_list]
 
     def save2html(self, path: Union[str, Path]) -> None:
@@ -47,7 +56,8 @@ class CHtmlPlotDriver:
         tabs: List[str] = []
         for idx, (lv, meta) in enumerate(zip(self.chan.lv_list, self.metas)):
             chart_id = _clean_id(f"{self.chan.code}_{lv.name}_{idx}")
-            active = " active" if idx == 0 else ""
+            is_active = lv == self.active_lv if self.active_lv is not None else idx == 0
+            active = " active" if is_active else ""
             label = self._level_label(lv)
             tabs.append(f'<button class="tf-tab{active}" type="button" data-target="{chart_id}">{html.escape(label)}</button>')
             panels.append(
@@ -55,6 +65,12 @@ class CHtmlPlotDriver:
                 f"{self._make_chart(meta, label, chart_id)}"
                 "</section>"
             )
+        if self.level_nav:
+            tabs = [
+                f'<a class="tf-tab{" active" if item.get("active") else ""}" href="{html.escape(item["href"])}">'
+                f'{html.escape(item["label"])}</a>'
+                for item in self.level_nav
+            ]
 
         title = html.escape(str(self.chan.code))
         return f"""<!doctype html>
@@ -88,8 +104,9 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
 .meta {{ color:var(--muted); font-size:12px; }}
 .tf-tabs {{ display:flex; gap:6px; flex-wrap:wrap; }}
 .tf-tab {{
-  height:30px; padding:0 12px; border:1px solid var(--line); border-radius:4px;
-  background:#fff; color:var(--ink); cursor:pointer;
+  display:inline-flex; align-items:center; height:30px; padding:0 12px;
+  border:1px solid var(--line); border-radius:4px; background:#fff;
+  color:var(--ink); cursor:pointer; text-decoration:none;
 }}
 .tf-tab.active {{ border-color:#1570ef; color:#175cd3; background:#eff8ff; }}
 .tf-panel {{ display:none; }}
@@ -164,6 +181,7 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
         mapping = {
             KL_TYPE.K_1M: "1分钟",
             KL_TYPE.K_5M: "5分钟",
+            KL_TYPE.K_10M: "10分钟",
             KL_TYPE.K_15M: "15分钟",
             KL_TYPE.K_30M: "30分钟",
             KL_TYPE.K_60M: "60分钟",
