@@ -254,7 +254,7 @@ pre {{ white-space:pre-wrap; word-break:break-word; background:#f8fafc; border:1
 def index_html(host: str, port: int) -> str:
     quick_items = json.dumps(QUICK_ITEMS, ensure_ascii=False)
     default_query = urlencode({"code": DEFAULT_CODE, "lv": "1m", "days": "60", "source": DEFAULT_SOURCE})
-    chart_url = f"/chart?{default_query}"
+    chart_url = f"chart?{default_query}"
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -423,7 +423,7 @@ function buildUrl(code) {{
   params.set('lv', lvSelect.value);
   params.set('days', daysSelect.value);
   params.set('source', sourceSelect.value);
-  return '/chart?' + params.toString();
+  return 'chart?' + params.toString();
 }}
 function setActive(code) {{
   var normalized = normalizeCode(code);
@@ -476,15 +476,25 @@ setActive('{DEFAULT_CODE}');
 class ChanChartHandler(BaseHTTPRequestHandler):
     server_version = "ChanChartHTTP/1.0"
 
+    @staticmethod
+    def normalize_path(path: str) -> str:
+        if path == "/chan-chart":
+            return "/"
+        if path.startswith("/chan-chart/"):
+            stripped = path[len("/chan-chart"):]
+            return stripped or "/"
+        return path
+
     def do_GET(self):
         parsed = urlparse(self.path)
-        if parsed.path in ("", "/"):
+        path = self.normalize_path(parsed.path)
+        if path in ("", "/"):
             self.respond_html(index_html(self.server.server_address[0] or "127.0.0.1", self.server.server_address[1]))
             return
-        if parsed.path == "/chart":
+        if path == "/chart":
             self.handle_chart(parsed.query)
             return
-        if parsed.path == "/healthz":
+        if path == "/healthz":
             self.respond_json({"ok": True})
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
