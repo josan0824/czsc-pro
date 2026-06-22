@@ -1,4 +1,4 @@
-from typing import Generic, List, Optional, Self, TypeVar
+from typing import Generic, List, Optional, TypeVar
 
 from Bi.Bi import CBi
 from Common.CEnum import BI_DIR, MACD_ALGO, TREND_LINE_SIDE
@@ -27,8 +27,8 @@ class CSeg(Generic[LINE_TYPE]):
         self.eigen_fx: Optional[CEigenFX] = None
         self.seg_idx = None  # 线段的线段用
         self.parent_seg: Optional[CSeg] = None  # 在哪个线段里面
-        self.pre: Optional[Self] = None
-        self.next: Optional[Self] = None
+        self.pre: Optional["CSeg[LINE_TYPE]"] = None
+        self.next: Optional["CSeg[LINE_TYPE]"] = None
 
         from BuySellPoint.BS_Point import CBS_Point
         self.bsp: Optional[CBS_Point] = None  # 尾部是不是买卖点

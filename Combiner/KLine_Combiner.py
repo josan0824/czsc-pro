@@ -1,4 +1,4 @@
-from typing import Generic, Iterable, List, Optional, Self, TypeVar, Union, overload
+from typing import Generic, Iterable, List, Optional, TypeVar, Union, overload
 
 from Common.cache import make_cache
 from Common.CEnum import FX_TYPE, KLINE_DIR
@@ -22,8 +22,8 @@ class CKLine_Combiner(Generic[T]):
 
         self.__dir = _dir
         self.__fx = FX_TYPE.UNKNOWN
-        self.__pre: Optional[Self] = None
-        self.__next: Optional[Self] = None
+        self.__pre: Optional["CKLine_Combiner[T]"] = None
+        self.__next: Optional["CKLine_Combiner[T]"] = None
 
     def clean_cache(self):
         self._memoize_cache = {}
@@ -50,14 +50,14 @@ class CKLine_Combiner(Generic[T]):
     def fx(self): return self.__fx
 
     @property
-    def pre(self) -> Self:
+    def pre(self) -> "CKLine_Combiner[T]":
         assert self.__pre is not None
         return self.__pre
 
     @property
     def next(self): return self.__next
 
-    def get_next(self) -> Self:
+    def get_next(self) -> "CKLine_Combiner[T]":
         assert self.next is not None
         return self.next
 
@@ -124,7 +124,7 @@ class CKLine_Combiner(Generic[T]):
                 return kl
         raise CChanException("can't find peak...", ErrCode.COMBINER_ERR)
 
-    def update_fx(self, _pre: Self, _next: Self, exclude_included=False, allow_top_equal=None):
+    def update_fx(self, _pre: "CKLine_Combiner[T]", _next: "CKLine_Combiner[T]", exclude_included=False, allow_top_equal=None):
         # allow_top_equal = None普通模式
         # allow_top_equal = 1 被包含，顶部相等不合并
         # allow_top_equal = -1 被包含，底部相等不合并
@@ -162,10 +162,10 @@ class CKLine_Combiner(Generic[T]):
     def __iter__(self) -> Iterable[T]:
         yield from self.lst
 
-    def set_pre(self, _pre: Self | None):
+    def set_pre(self, _pre: Optional["CKLine_Combiner[T]"]):
         self.__pre = _pre
         self.clean_cache()
 
-    def set_next(self, _next: Self | None):
+    def set_next(self, _next: Optional["CKLine_Combiner[T]"]):
         self.__next = _next
         self.clean_cache()
