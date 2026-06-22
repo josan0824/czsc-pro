@@ -1,3 +1,6 @@
+运行方式：
+PYTHONPYCACHEPREFIX=/private/tmp/chan_pycache MPLCONFIGDIR=/Users/josan/Downloads/chan.py-main/.matplotlib_cache /opt/homebrew/bin/python3.11 main.py
+
 <p align="center">
 <img src="../Image/chan.py_image_1.svg" width="300"/>
 </p>
@@ -1492,6 +1495,3 @@ class COpenQuotaGen:
 如果你觉得这个项目对你有帮助或有启发，可以请我喝一杯。。额。。咖啡和牛奶以外的东西，毕竟我喝这两种会拉肚子。。
 
 <img src="../Image/coffee.jpeg" width="300"/>
-
-运行方式：
-PYTHONPYCACHEPREFIX=/private/tmp/chan_pycache MPLCONFIGDIR=/Users/josan/Downloads/chan.py-main/.matplotlib_cache /opt/homebrew/bin/python3.11 main.py

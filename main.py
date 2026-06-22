@@ -5,8 +5,7 @@ from pathlib import Path
 from Chan import CChan
 from ChanConfig import CChanConfig
 from Common.CEnum import AUTYPE, DATA_SRC, KL_TYPE
-from Plot.AnimatePlotDriver import CAnimateDriver
-from Plot.PlotDriver import CPlotDriver
+from Plot.HtmlPlotDriver import CHtmlPlotDriver
 
 
 def safe_filename_part(value):
@@ -44,7 +43,7 @@ def get_stock_name(code, data_src):
     return code
 
 
-def generate_chart(code, begin_time, end_time, data_src, lv_list, config, plot_config, plot_para):
+def generate_chart(code, begin_time, end_time, data_src, lv_list, config, plot_config, plot_para, output_format="html"):
     normalized_code = normalize_code(code)
     chan = CChan(
         code=normalized_code,
@@ -57,19 +56,34 @@ def generate_chart(code, begin_time, end_time, data_src, lv_list, config, plot_c
     )
 
     if not config.trigger_step:
-        plot_driver = CPlotDriver(
-            chan,
-            plot_config=plot_config,
-            plot_para=plot_para,
-        )
         output_dir = Path("Output")
         output_dir.mkdir(exist_ok=True)
         stock_name = safe_filename_part(get_stock_name(normalized_code, data_src))
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        output_path = output_dir / f"{stock_name}_{timestamp}.png"
-        plot_driver.save2img(output_path)
+        if output_format == "html":
+            plot_driver = CHtmlPlotDriver(
+                chan,
+                plot_config=plot_config,
+                plot_para=plot_para,
+            )
+            output_path = output_dir / f"{stock_name}_{timestamp}.html"
+            plot_driver.save2html(output_path)
+        elif output_format == "png":
+            from Plot.PlotDriver import CPlotDriver
+
+            plot_driver = CPlotDriver(
+                chan,
+                plot_config=plot_config,
+                plot_para=plot_para,
+            )
+            output_path = output_dir / f"{stock_name}_{timestamp}.png"
+            plot_driver.save2img(output_path)
+        else:
+            raise ValueError(f"unsupported output_format={output_format!r}, expected html/png")
         print(f"saved: {output_path}")
         return output_path
+
+    from Plot.AnimatePlotDriver import CAnimateDriver
 
     CAnimateDriver(
         chan,
@@ -91,7 +105,7 @@ def main():
         #"002475.SZ",
     ]
 
-    begin_time = (datetime.now() - timedelta(days=15)).strftime("%Y-%m-%d")
+    begin_time = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
     end_time = None
     data_src = DATA_SRC.MOOTDX
     lv_list = [KL_TYPE.K_1M]
@@ -159,6 +173,7 @@ def main():
                 config=config,
                 plot_config=plot_config,
                 plot_para=plot_para,
+                output_format="html",
             )
         except Exception as err:
             print(f"failed: {code} -> {err}")
