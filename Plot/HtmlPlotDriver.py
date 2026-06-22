@@ -181,7 +181,6 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
         mapping = {
             KL_TYPE.K_1M: "1分钟",
             KL_TYPE.K_5M: "5分钟",
-            KL_TYPE.K_10M: "10分钟",
             KL_TYPE.K_15M: "15分钟",
             KL_TYPE.K_30M: "30分钟",
             KL_TYPE.K_60M: "60分钟",
