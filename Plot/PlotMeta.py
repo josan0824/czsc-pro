@@ -13,10 +13,13 @@ from ZS.ZS import CZS
 
 class Cklc_meta:
     def __init__(self, klc: CKLine):
+        self.idx = klc.idx
         self.high = klc.high
         self.low = klc.low
         self.begin_idx = klc.lst[0].idx
         self.end_idx = klc.lst[-1].idx
+        self.time_begin = klc.time_begin
+        self.time_end = klc.time_end
         self.type = klc.fx if klc.fx != FX_TYPE.UNKNOWN else klc.dir
 
         self.klu_list = list(klc.lst)
@@ -27,10 +30,16 @@ class CBi_meta:
         self.idx = bi.idx
         self.dir = bi.dir
         self.type = bi.type
+        self.begin_klc_idx = bi.begin_klc.idx
+        self.end_klc_idx = bi.end_klc.idx
+        self.begin_klc_fx = bi.begin_klc.fx
+        self.end_klc_fx = bi.end_klc.fx
         self.begin_x = bi.get_begin_klu().idx
         self.end_x = bi.get_end_klu().idx
         self.begin_y = bi.get_begin_val()
         self.end_y = bi.get_end_val()
+        self.begin_time = bi.get_begin_klu().time
+        self.end_time = bi.get_end_klu().time
         self.is_sure = bi.is_sure
 
 

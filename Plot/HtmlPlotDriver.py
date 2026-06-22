@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from Chan import CChan
-from Common.CEnum import FX_TYPE, KL_TYPE
+from Common.CEnum import BI_DIR, FX_TYPE, KL_TYPE
 from Plot.PlotMeta import CChanPlotMeta
 
 
@@ -20,8 +20,20 @@ def _fmt_num(value: float, digits: int = 2) -> str:
     return f"{float(value):.{digits}f}"
 
 
+def _fmt_time(value: Any) -> str:
+    return value.to_str() if hasattr(value, "to_str") else str(value or "")
+
+
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+
+
+def _fx_label(kind: str) -> str:
+    return "顶分型" if kind == "top" else "底分型"
+
+
+def _dir_label(direction: str) -> str:
+    return "向上笔" if direction == "up" else "向下笔"
 
 
 class CHtmlPlotDriver:
@@ -141,35 +153,120 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
 }}
 .legend {{ display:flex; gap:14px; flex-wrap:wrap; color:var(--muted); font-size:12px; margin-top:8px; }}
 .swatch {{ display:inline-block; width:10px; height:10px; margin-right:5px; vertical-align:-1px; }}
+.logic-link {{
+  display:inline-flex; align-items:center; height:30px; padding:0 12px; margin-left:8px;
+  border:1px solid #b2ddff; border-radius:4px; background:#eff8ff; color:#175cd3;
+  text-decoration:none; font-size:13px;
+}}
+.report-section {{
+  margin-top:14px; background:var(--panel); border:1px solid var(--line); border-radius:6px;
+  padding:14px; overflow:hidden;
+}}
+.section-head {{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }}
+.section-head h2 {{ margin:0; font-size:17px; line-height:1.3; }}
+.section-actions {{ display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px; }}
+.section-actions input {{
+  height:30px; min-width:178px; border:1px solid var(--line); border-radius:4px; padding:0 8px;
+  color:var(--ink); background:#fff;
+}}
+.section-actions button {{
+  height:30px; padding:0 12px; border:1px solid #2e698c; border-radius:4px; background:#2e698c;
+  color:#fff; cursor:pointer;
+}}
+.section-actions .collapse-btn {{
+  border:0; background:transparent; color:#344054; padding:0 4px;
+}}
+.table-wrap {{ overflow:auto; max-height:430px; border:1px solid #e4e7ec; }}
+.data-table {{ width:100%; min-width:1040px; border-collapse:collapse; font-size:13px; }}
+.data-table th {{
+  position:sticky; top:0; z-index:1; background:#eef2f6; color:#101828; text-align:left;
+  border-bottom:1px solid #d0d5dd; padding:7px 8px; white-space:nowrap;
+}}
+.data-table td {{ border-bottom:1px solid #d0d5dd; padding:7px 8px; vertical-align:top; }}
+.data-table tr.clickable {{ cursor:pointer; }}
+.data-table tr.clickable:hover {{ background:#f8fafc; }}
+.data-table tr.invalid {{ background:#fff1ef; color:#7a271a; }}
+.data-table tr.selected-row {{ outline:2px solid #2e698c; outline-offset:-2px; background:#eff8ff; }}
+.note-cell {{ min-width:380px; line-height:1.55; }}
+.note-cell ol {{ margin:0; padding-left:18px; }}
+.detail-page {{ display:none; min-height:100vh; }}
+.detail-page.active {{ display:block; }}
+.detail-panel {{ max-width:980px; margin:0 auto; background:#fff; border:1px solid var(--line); border-radius:6px; padding:22px; }}
+.detail-panel h1 {{ margin-bottom:12px; }}
+.detail-panel h2 {{ margin:20px 0 8px; font-size:17px; }}
+.detail-panel p,.detail-panel li {{ color:#344054; }}
+.detail-panel code {{ background:#f2f4f7; padding:1px 4px; border-radius:3px; }}
+.back-link {{
+  display:inline-flex; align-items:center; height:30px; padding:0 12px; margin-bottom:14px;
+  border:1px solid var(--line); border-radius:4px; color:#101828; background:#fff; text-decoration:none;
+}}
 @media (max-width:760px) {{
   main {{ padding:10px; }}
   header {{ display:block; }}
   .tf-tabs {{ margin-top:8px; }}
   .chart-help {{ flex-basis:100%; margin-left:0; }}
   .chart-wrap {{ height:520px; }}
+  .section-head {{ display:block; }}
+  .section-actions {{ margin-top:8px; flex-wrap:wrap; }}
+  .logic-link {{ margin:8px 0 0; }}
 }}
 </style>
 </head>
 <body>
-<main>
+<main id="report-page">
   <header>
     <div>
       <h1>{title} 缠论分型图</h1>
       <div class="meta">K线 · 分型 · 笔；滚轮缩放，拖拽平移，双击切换十字星。</div>
     </div>
-    <nav class="tf-tabs">{"".join(tabs)}</nav>
+    <div>
+      <nav class="tf-tabs">{"".join(tabs)}</nav>
+      <a class="logic-link" href="#logic" id="logic-open">划分逻辑</a>
+    </div>
   </header>
   {"".join(panels)}
+</main>
+<main id="logic-page" class="detail-page">
+  <section class="detail-panel">
+    <a class="back-link" href="#" id="logic-back">返回图表</a>
+    <h1>当前分型与笔划分逻辑</h1>
+    <p>本页说明当前 HTML 报告使用的机械化计算口径，便于对照“原始分型列表”和“笔列表”复核每一步。</p>
+    <h2>1. K线包含处理</h2>
+    <p>先按相邻 K 线高低点关系合并包含关系，合并后的 K 线保留起止时间、最高价、最低价和内部原始 K 线区间。后续分型识别均基于合并后的 K 线。</p>
+    <h2>2. 原始分型识别</h2>
+    <p>每根合并 K 线与前后合并 K 线比较：中间 K 线高点和低点均高于两侧时识别为顶分型；中间 K 线高点和低点均低于两侧时识别为底分型。表格中的“分型价格、最高、最低”来自该合并 K 线及其内部原始 K 线。</p>
+    <h2>3. 分型过滤</h2>
+    <p>原始分型进入笔构造时需要满足顶底交替、分型占用区间和独立 K 线间隔要求。连续同类分型会按极值归并：顶分型保留高点更高者，底分型保留低点更低者；反向分型若区间重叠或间隔不足，会优先按成笔条件过滤。</p>
+    <h2>4. 笔构造</h2>
+    <p>有效笔由一组相邻有效分型端点构成。底分型到顶分型为向上笔，顶分型到底分型为向下笔。当前配置为 <code>bi_strict=True</code>、<code>bi_fx_check=totally</code>，因此端点之间需满足严格合并 K 线跨度和完全区间验证。</p>
+    <h2>5. 表格备注口径</h2>
+    <p>原始分型列表中“有效”表示该分型最终被某条笔的起点或终点采用；“已过滤”表示它未成为笔端点。备注会列出识别形态、成笔采用、同类极值或间隔/区间过滤等可审计原因。点击表格行可定位到对应 K 线。</p>
+  </section>
 </main>
 <script>
 document.querySelectorAll('.tf-tab').forEach(function(tab) {{
   tab.addEventListener('click', function() {{
+    if (tab.tagName === 'A') return;
     document.querySelectorAll('.tf-tab').forEach(function(x) {{ x.classList.remove('active'); }});
     document.querySelectorAll('.tf-panel').forEach(function(x) {{ x.classList.remove('active'); }});
     tab.classList.add('active');
     var panel = document.getElementById(tab.getAttribute('data-target'));
     if (panel) panel.classList.add('active');
   }});
+}});
+var reportPage = document.getElementById('report-page');
+var logicPage = document.getElementById('logic-page');
+document.getElementById('logic-open').addEventListener('click', function(e) {{
+  e.preventDefault();
+  reportPage.style.display = 'none';
+  logicPage.classList.add('active');
+  window.scrollTo(0, 0);
+}});
+document.getElementById('logic-back').addEventListener('click', function(e) {{
+  e.preventDefault();
+  logicPage.classList.remove('active');
+  reportPage.style.display = '';
+  window.scrollTo(0, 0);
 }});
 </script>
 </body>
@@ -189,6 +286,163 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
             KL_TYPE.K_MON: "月线",
         }
         return mapping.get(lv, lv.name)
+
+    @staticmethod
+    def _note_html(notes: List[str]) -> str:
+        return "<ol>" + "".join(f"<li>{html.escape(note)}</li>" for note in notes) + "</ol>"
+
+    def _build_report_rows(self, meta: CChanPlotMeta) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        endpoint_map: Dict[int, List[str]] = {}
+        pen_rows: List[Dict[str, Any]] = []
+        for i, bi in enumerate(meta.bi_list):
+            direction = "up" if bi.dir == BI_DIR.UP else "down"
+            begin_kind = "bottom" if bi.begin_klc_fx == FX_TYPE.BOTTOM else "top"
+            end_kind = "top" if bi.end_klc_fx == FX_TYPE.TOP else "bottom"
+            kl_cnt = int(bi.end_x - bi.begin_x + 1)
+            amp = abs(float(bi.end_y) - float(bi.begin_y))
+            notes = [
+                f"成笔：{_fx_label(begin_kind)}到{_fx_label(end_kind)}且K线间隔通过，保留为有效笔",
+                f"跨度：端点原始K线 {bi.begin_x} 至 {bi.end_x}，共 {kl_cnt} 根；价差 {amp:.2f}",
+            ]
+            if not bi.is_sure:
+                notes.append("最后一笔为虚笔或尚未完全确认，后续新K线可能改写终点")
+            endpoint_map.setdefault(int(bi.begin_klc_idx), []).append(f"第{i + 1}笔起点")
+            endpoint_map.setdefault(int(bi.end_klc_idx), []).append(f"第{i + 1}笔终点")
+            pen_rows.append({
+                "idx": i + 1,
+                "direction": direction,
+                "begin_date": _fmt_time(bi.begin_time),
+                "begin_kind": begin_kind,
+                "begin_price": float(bi.begin_y),
+                "end_date": _fmt_time(bi.end_time),
+                "end_kind": end_kind,
+                "end_price": float(bi.end_y),
+                "kl_cnt": kl_cnt,
+                "amp": amp,
+                "status": "有效" if bi.is_sure else "未确认",
+                "notes": notes,
+                "target_idx": int(bi.end_x),
+            })
+
+        fx_rows: List[Dict[str, Any]] = []
+        last_valid: Optional[Dict[str, Any]] = None
+        for klc in meta.klc_list:
+            if klc.type not in (FX_TYPE.TOP, FX_TYPE.BOTTOM):
+                continue
+            kind = "top" if klc.type == FX_TYPE.TOP else "bottom"
+            is_valid = int(klc.idx) in endpoint_map
+            date = _fmt_time(klc.klu_list[len(klc.klu_list) // 2].time) if klc.klu_list else _fmt_time(klc.time_begin)
+            price = float(klc.high if klc.type == FX_TYPE.TOP else klc.low)
+            high_klu = max(klc.klu_list, key=lambda x: float(x.high)) if klc.klu_list else None
+            low_klu = min(klc.klu_list, key=lambda x: float(x.low)) if klc.klu_list else None
+            notes = [
+                f"识别到{_fx_label(kind)}形态：分型价格{_fmt_num(price)}，高点{_fmt_num(float(klc.high))}，低点{_fmt_num(float(klc.low))}",
+            ]
+            if is_valid:
+                notes.append("作为" + "、".join(endpoint_map[int(klc.idx)]) + "保留")
+                if last_valid and last_valid["kind"] == kind:
+                    better = price >= float(last_valid["price"]) if kind == "top" else price <= float(last_valid["price"])
+                    if better:
+                        notes.append(f"同类分型归并后，当前{_fx_label(kind)}极值更强，替代前一同类端点")
+                    else:
+                        notes.append(f"同类分型归并后仍被保留，因后续笔结构需要该端点")
+                elif last_valid:
+                    notes.append(f"与前一有效{_fx_label(last_valid['kind'])}交替，满足笔端点方向要求")
+                last_valid = {"kind": kind, "price": price, "date": date}
+            else:
+                if last_valid is None:
+                    notes.append("未成为笔端点：首笔形成前的候选分型被缓存或被后续更合适端点替换")
+                elif last_valid["kind"] == kind:
+                    notes.append(f"未成为笔端点：与前一有效{_fx_label(kind)}同类，按极值规则保留更强者")
+                else:
+                    notes.append(f"未成为笔端点：与前一有效{_fx_label(last_valid['kind'])}之间未通过严格跨度或完全区间验证")
+                notes.append("当前报告未记录逐步回溯日志，以上备注按最终有效笔端点反推常见过滤路径")
+            fx_rows.append({
+                "idx": len(fx_rows) + 1,
+                "date": date,
+                "kind": kind,
+                "price": price,
+                "high": float(klc.high),
+                "high_time": _fmt_time(high_klu.time) if high_klu else "",
+                "low": float(klc.low),
+                "low_time": _fmt_time(low_klu.time) if low_klu else "",
+                "status": "有效" if is_valid else "已过滤",
+                "notes": notes,
+                "target_idx": int((klc.begin_idx + klc.end_idx) / 2),
+            })
+        return fx_rows, pen_rows
+
+    def _make_detail_tables(self, meta: CChanPlotMeta, chart_id: str) -> str:
+        fx_rows, pen_rows = self._build_report_rows(meta)
+
+        fx_body = []
+        for row in fx_rows:
+            row_class = "clickable" if row["status"] == "有效" else "clickable invalid"
+            fx_body.append(
+                f'<tr class="{row_class}" data-target-idx="{row["target_idx"]}">'
+                f'<td>{row["idx"]}</td>'
+                f'<td>{html.escape(row["date"])}</td>'
+                f'<td>{_fx_label(row["kind"])}</td>'
+                f'<td>{_fmt_num(row["price"])}（{html.escape(row["date"])}）</td>'
+                f'<td>{_fmt_num(row["high"])}（{html.escape(row["high_time"])}）</td>'
+                f'<td>{_fmt_num(row["low"])}（{html.escape(row["low_time"])}）</td>'
+                f'<td>{html.escape(row["status"])}</td>'
+                f'<td class="note-cell">{self._note_html(row["notes"])}</td>'
+                '</tr>'
+            )
+
+        pen_body = []
+        for row in pen_rows:
+            pen_body.append(
+                f'<tr class="clickable" data-target-idx="{row["target_idx"]}">'
+                f'<td>{row["idx"]}</td>'
+                f'<td>{_dir_label(row["direction"])}</td>'
+                f'<td>{html.escape(row["begin_date"])}</td>'
+                f'<td>{_fx_label(row["begin_kind"])}</td>'
+                f'<td>{_fmt_num(row["begin_price"])}</td>'
+                f'<td>{html.escape(row["end_date"])}</td>'
+                f'<td>{_fx_label(row["end_kind"])}</td>'
+                f'<td>{_fmt_num(row["end_price"])}</td>'
+                f'<td>{row["kl_cnt"]}</td>'
+                f'<td>{_fmt_num(row["amp"])}</td>'
+                f'<td>{html.escape(row["status"])}</td>'
+                f'<td class="note-cell">{self._note_html(row["notes"])}</td>'
+                '</tr>'
+            )
+
+        return f"""
+<section class="report-section">
+  <div class="section-head">
+    <h2>原始分型列表（形态{len(fx_rows)}个，有效{sum(1 for row in fx_rows if row["status"] == "有效")}个）</h2>
+    <div class="section-actions">
+      <label for="goto-{chart_id}">定位时间</label>
+      <input id="goto-{chart_id}" type="text" placeholder="年/月/日 --:--">
+      <button id="goto-btn-{chart_id}" type="button">确定</button>
+      <button class="collapse-btn" type="button" data-collapse="fx-table-{chart_id}">收起</button>
+    </div>
+  </div>
+  <div id="fx-table-{chart_id}" class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>#</th><th>日期</th><th>类型</th><th>分型价格</th><th>最高</th><th>最低</th><th>状态</th><th>备注</th></tr></thead>
+      <tbody>{"".join(fx_body) if fx_body else '<tr><td colspan="8">暂无分型</td></tr>'}</tbody>
+    </table>
+  </div>
+</section>
+<section class="report-section">
+  <div class="section-head">
+    <h2>笔列表（候选{len(pen_rows)}笔，有效{sum(1 for row in pen_rows if row["status"] == "有效")}笔）</h2>
+    <div class="section-actions">
+      <button class="collapse-btn" type="button" data-collapse="pen-table-{chart_id}">收起</button>
+    </div>
+  </div>
+  <div id="pen-table-{chart_id}" class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>#</th><th>方向</th><th>起点日期</th><th>起点类型</th><th>起点价格</th><th>终点日期</th><th>终点类型</th><th>终点价格</th><th>K线间隔</th><th>价差</th><th>状态</th><th>备注</th></tr></thead>
+      <tbody>{"".join(pen_body) if pen_body else '<tr><td colspan="12">暂无笔</td></tr>'}</tbody>
+    </table>
+  </div>
+</section>
+"""
 
     def _make_chart(self, meta: CChanPlotMeta, label: str, chart_id: str) -> str:
         bars = list(meta.klu_iter())
@@ -250,6 +504,8 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
         for i, bi in enumerate(meta.bi_list):
             pens.append({
                 "i": i,
+                "begin": int(bi.begin_x),
+                "end": int(bi.end_x),
                 "x1": round(left + bi.begin_x * bar_w + bar_w / 2, 1),
                 "y1": round(yp(bi.begin_y), 1),
                 "x2": round(left + bi.end_x * bar_w + bar_w / 2, 1),
@@ -262,6 +518,8 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
         for i, seg in enumerate(meta.seg_list):
             segments.append({
                 "i": i,
+                "begin": int(seg.begin_x),
+                "end": int(seg.end_x),
                 "x1": round(left + seg.begin_x * bar_w + bar_w / 2, 1),
                 "y1": round(yp(seg.begin_y), 1),
                 "x2": round(left + seg.end_x * bar_w + bar_w / 2, 1),
@@ -310,6 +568,7 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
             bs_points.append({
                 "i": i,
                 "x": round(left + bsp.x * bar_w + bar_w / 2, 1),
+                "bar": int(bsp.x),
                 "y": round(yp(float(bsp.y)), 1),
                 "labelY": round(yp(label_price), 1),
                 "text": bsp.desc(),
@@ -432,6 +691,7 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
             "</g>"
         )
         svg.append("</svg>")
+        detail_tables = self._make_detail_tables(meta, chart_id)
 
         return f"""
 <div class="chart-shell">
@@ -458,6 +718,7 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
     <span><i class="swatch" style="background:#067647"></i>卖点</span>
   </div>
 </div>
+{detail_tables}
 <script>
 (function() {{
 var data = {{
@@ -478,6 +739,7 @@ var crosshairV = document.getElementById('crosshair-v-{chart_id}');
 var crosshairH = document.getElementById('crosshair-h-{chart_id}');
 var crosshairBg = document.getElementById('crosshair-price-bg-{chart_id}');
 var crosshairText = document.getElementById('crosshair-price-text-{chart_id}');
+var panelRoot = document.getElementById('{chart_id}');
 var left = {left}, right = {right}, top = {top}, bottom = {bottom}, barW = {bar_w}, chartH = {height};
 var totalWidth = {total_width};
 var yHigh = {y_high}, yLow = {y_low}, yRange = {y_range}, plotH = {plot_h};
@@ -588,6 +850,32 @@ function showTip(idx, clientX, clientY) {{
   tip.style.left = x + 'px';
   tip.style.top = y + 'px';
 }}
+function focusBar(idx, shouldScroll) {{
+  idx = Math.max(0, Math.min(data.bars.length - 1, Number(idx) || 0));
+  var b = data.bars[idx];
+  var desiredW = Math.min(maxViewW, Math.max(minViewW, 96 * barW));
+  viewW = desiredW;
+  viewH = viewHeightForWidth(viewW);
+  originX = b.x - viewW * 0.5;
+  originY = Math.max(0, (chartH - viewH) / 2);
+  updateViewBox();
+  selected.setAttribute('x1', b.x.toFixed(1));
+  selected.setAttribute('x2', b.x.toFixed(1));
+  selected.style.display = 'block';
+  if (shouldScroll) wrap.scrollIntoView({{behavior:'smooth', block:'center'}});
+}}
+function findBarByTime(value) {{
+  value = String(value || '').trim();
+  if (!value) return -1;
+  var normalized = value.replace(/[年月]/g, '/').replace(/[日]/g, '').replace(/-/g, '/').replace(/\\s+/g, ' ');
+  var best = -1;
+  for (var i = 0; i < data.bars.length; i++) {{
+    var dt = data.bars[i].dt.replace(/-/g, '/');
+    if (dt.indexOf(normalized) >= 0 || normalized.indexOf(dt) >= 0) return i;
+    if (dt.slice(0, 10) === normalized.slice(0, 10)) best = i;
+  }}
+  return best;
+}}
 
 wrap.addEventListener('wheel', function(e) {{
   e.preventDefault();
@@ -628,6 +916,29 @@ wrap.addEventListener('dblclick', function(e) {{
 document.getElementById('zoom-in-{chart_id}').addEventListener('click', function() {{ zoomAt(0.5, 0.5, 0.5); }});
 document.getElementById('zoom-out-{chart_id}').addEventListener('click', function() {{ zoomAt(2, 0.5, 0.5); }});
 document.getElementById('reset-{chart_id}').addEventListener('click', function() {{ tip.style.display = 'none'; resetView(); }});
+panelRoot.querySelectorAll('tr[data-target-idx]').forEach(function(row) {{
+  row.addEventListener('click', function() {{
+    panelRoot.querySelectorAll('tr.selected-row').forEach(function(x) {{ x.classList.remove('selected-row'); }});
+    row.classList.add('selected-row');
+    focusBar(row.getAttribute('data-target-idx'), true);
+  }});
+}});
+panelRoot.querySelectorAll('.collapse-btn').forEach(function(btn) {{
+  btn.addEventListener('click', function() {{
+    var target = document.getElementById(btn.getAttribute('data-collapse'));
+    if (!target) return;
+    var hidden = target.style.display === 'none';
+    target.style.display = hidden ? '' : 'none';
+    btn.textContent = hidden ? '收起' : '展开';
+  }});
+}});
+document.getElementById('goto-btn-{chart_id}').addEventListener('click', function() {{
+  var idx = findBarByTime(document.getElementById('goto-{chart_id}').value);
+  if (idx >= 0) focusBar(idx, true);
+}});
+document.getElementById('goto-{chart_id}').addEventListener('keydown', function(e) {{
+  if (e.key === 'Enter') document.getElementById('goto-btn-{chart_id}').click();
+}});
 window.addEventListener('resize', updateZoomLabel);
 resetView();
 }})();
