@@ -110,7 +110,7 @@ body {{
   color:var(--ink);
   font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 }}
-main {{ max-width:1440px; margin:0 auto; padding:16px; }}
+main {{ max-width:1557px; margin:0 auto; padding:16px; }}
 header {{ display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:12px; }}
 h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
 .meta {{ color:var(--muted); font-size:12px; }}
@@ -123,41 +123,47 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
 .tf-tab.active {{ border-color:#1570ef; color:#175cd3; background:#eff8ff; }}
 .tf-panel {{ display:none; }}
 .tf-panel.active {{ display:block; }}
-.chart-shell {{ background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:10px; }}
+.chart-shell {{ background:#101826; border:1px solid #263244; border-radius:8px; padding:10px; }}
 .chart-toolbar {{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:8px; }}
 .chart-toolbar button {{
-  min-width:34px; height:30px; padding:0 10px; border:1px solid var(--line);
-  border-radius:4px; background:#fff; color:var(--ink); cursor:pointer;
+  min-width:34px; height:30px; padding:0 10px; border:1px solid #344054;
+  border-radius:4px; background:#151f30; color:#d0d5dd; cursor:pointer;
 }}
-.chart-toolbar button:hover {{ background:#f8fafc; }}
-.zoom-label {{ color:var(--muted); font-size:13px; min-width:62px; text-align:center; }}
-.chart-help {{ margin-left:auto; color:#98a2b3; font-size:12px; }}
+.chart-toolbar button:hover {{ background:#1d2939; }}
+.chart-toolbar button.active {{
+  border-color:#f59e0b;
+  background:#2a2433;
+  color:#fef3c7;
+}}
+.chart-toolbar strong {{ color:#f2f4f7; }}
+.zoom-label {{ color:#98a2b3; font-size:13px; min-width:62px; text-align:center; }}
+.chart-help {{ margin-left:auto; color:#7d89a1; font-size:12px; }}
 .chart-wrap {{
   position:relative; overflow:hidden; height:clamp(420px,72vh,820px);
-  border:1px solid #e4e7ec; border-radius:4px; background:#fafafa; touch-action:none;
+  border:1px solid #263244; border-radius:6px; background:#111827; touch-action:none;
 }}
-.chan-chart-svg {{ width:100%; height:100%; display:block; background:#fafafa; cursor:grab; }}
+.chan-chart-svg {{ width:100%; height:100%; display:block; background:#111827; cursor:grab; }}
 .chan-chart-svg text {{
-  vector-effect:non-scaling-stroke; paint-order:stroke; stroke:#fafafa;
-  stroke-width:2px; stroke-linejoin:round;
+  paint-order:stroke; stroke:#111827; stroke-width:3px; stroke-linejoin:round;
 }}
 .chan-chart-svg line,.chan-chart-svg rect,.chan-chart-svg polygon {{
   vector-effect:non-scaling-stroke;
 }}
+.ma-layer {{ display:none; }}
+.ma-layer.active {{ display:inline; }}
+.fractal-detail-layer {{ display:none; }}
+.fractal-detail-layer.active {{ display:inline; }}
+.chart-price-label {{ opacity:.82; }}
 .chart-fractal-marker:hover {{ filter:drop-shadow(0 0 3px rgba(247,144,9,.85)); }}
 .tooltip {{
   position:absolute; z-index:5; display:none; min-width:190px; padding:8px 10px;
-  border:1px solid #d9dee7; border-radius:4px; background:rgba(255,255,255,.96);
-  box-shadow:0 8px 24px rgba(16,24,40,.14); color:var(--ink); font-size:12px;
+  border:1px solid #344054; border-radius:4px; background:rgba(15,23,42,.96);
+  box-shadow:0 10px 28px rgba(0,0,0,.28); color:#e5e7eb; font-size:12px;
   pointer-events:none;
 }}
-.legend {{ display:flex; gap:14px; flex-wrap:wrap; color:var(--muted); font-size:12px; margin-top:8px; }}
+.legend {{ display:flex; gap:14px; flex-wrap:wrap; color:#98a2b3; font-size:12px; margin-top:8px; }}
 .swatch {{ display:inline-block; width:10px; height:10px; margin-right:5px; vertical-align:-1px; }}
-.logic-link {{
-  display:inline-flex; align-items:center; height:30px; padding:0 12px; margin-left:8px;
-  border:1px solid #b2ddff; border-radius:4px; background:#eff8ff; color:#175cd3;
-  text-decoration:none; font-size:13px;
-}}
+.logic-source {{ display:none; }}
 .report-section {{
   margin-top:14px; background:var(--panel); border:1px solid var(--line); border-radius:6px;
   padding:14px; overflow:hidden;
@@ -165,6 +171,11 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
 .section-head {{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }}
 .section-head h2 {{ margin:0; font-size:17px; line-height:1.3; }}
 .section-actions {{ display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px; }}
+.goto-control {{
+  display:flex;
+  align-items:center;
+  gap:6px;
+}}
 .section-actions input {{
   height:30px; min-width:178px; border:1px solid var(--line); border-radius:4px; padding:0 8px;
   color:var(--ink); background:#fff;
@@ -187,10 +198,9 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
 .data-table tr.clickable:hover {{ background:#f8fafc; }}
 .data-table tr.invalid {{ background:#fff1ef; color:#7a271a; }}
 .data-table tr.selected-row {{ outline:2px solid #2e698c; outline-offset:-2px; background:#eff8ff; }}
+.data-table tr.focused-row {{ outline:2px solid #1570ef; outline-offset:-2px; background:#eff8ff; }}
 .note-cell {{ min-width:380px; line-height:1.55; }}
 .note-cell ol {{ margin:0; padding-left:18px; }}
-.detail-page {{ display:none; min-height:100vh; }}
-.detail-page.active {{ display:block; }}
 .detail-panel {{ max-width:980px; margin:0 auto; background:#fff; border:1px solid var(--line); border-radius:6px; padding:22px; }}
 .detail-panel h1 {{ margin-bottom:12px; }}
 .detail-panel h2 {{ margin:20px 0 8px; font-size:17px; }}
@@ -208,7 +218,7 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
   .chart-wrap {{ height:520px; }}
   .section-head {{ display:block; }}
   .section-actions {{ margin-top:8px; flex-wrap:wrap; }}
-  .logic-link {{ margin:8px 0 0; }}
+  .goto-control {{ width:100%; }}
 }}
 </style>
 </head>
@@ -221,14 +231,10 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
     </div>
     <div>
       <nav class="tf-tabs">{"".join(tabs)}</nav>
-      <a class="logic-link" href="#logic" id="logic-open">划分逻辑</a>
     </div>
   </header>
   {"".join(panels)}
-</main>
-<main id="logic-page" class="detail-page">
-  <section class="detail-panel">
-    <a class="back-link" href="#" id="logic-back">返回图表</a>
+  <section id="logic-content" class="logic-source">
     <h1>当前分型与笔划分逻辑</h1>
     <p>本页说明当前 HTML 报告使用的机械化计算口径，便于对照“原始分型列表”和“笔列表”复核每一步。</p>
     <h2>1. K线包含处理</h2>
@@ -254,20 +260,6 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
     if (panel) panel.classList.add('active');
   }});
 }});
-var reportPage = document.getElementById('report-page');
-var logicPage = document.getElementById('logic-page');
-document.getElementById('logic-open').addEventListener('click', function(e) {{
-  e.preventDefault();
-  reportPage.style.display = 'none';
-  logicPage.classList.add('active');
-  window.scrollTo(0, 0);
-}});
-document.getElementById('logic-back').addEventListener('click', function(e) {{
-  e.preventDefault();
-  logicPage.classList.remove('active');
-  reportPage.style.display = '';
-  window.scrollTo(0, 0);
-}});
 </script>
 </body>
 </html>
@@ -290,6 +282,10 @@ document.getElementById('logic-back').addEventListener('click', function(e) {{
     @staticmethod
     def _note_html(notes: List[str]) -> str:
         return "<ol>" + "".join(f"<li>{html.escape(note)}</li>" for note in notes) + "</ol>"
+
+    @staticmethod
+    def _time_input_type(label: str) -> str:
+        return "date" if label in ("日线", "周线", "月线") else "datetime-local"
 
     def _build_report_rows(self, meta: CChanPlotMeta) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         endpoint_map: Dict[int, List[str]] = {}
@@ -372,8 +368,10 @@ document.getElementById('logic-back').addEventListener('click', function(e) {{
             })
         return fx_rows, pen_rows
 
-    def _make_detail_tables(self, meta: CChanPlotMeta, chart_id: str) -> str:
+    def _make_detail_tables(self, meta: CChanPlotMeta, chart_id: str, label: str) -> tuple[str, str]:
         fx_rows, pen_rows = self._build_report_rows(meta)
+        input_type = self._time_input_type(label)
+        input_title = "选择交易日期" if input_type == "date" else "选择交易日期和分钟"
 
         fx_body = []
         for row in fx_rows:
@@ -410,14 +408,16 @@ document.getElementById('logic-back').addEventListener('click', function(e) {{
                 '</tr>'
             )
 
-        return f"""
+        fx_section = f"""
 <section class="report-section">
   <div class="section-head">
     <h2>原始分型列表（形态{len(fx_rows)}个，有效{sum(1 for row in fx_rows if row["status"] == "有效")}个）</h2>
     <div class="section-actions">
       <label for="goto-{chart_id}">定位时间</label>
-      <input id="goto-{chart_id}" type="text" placeholder="年/月/日 --:--">
-      <button id="goto-btn-{chart_id}" type="button">确定</button>
+      <div class="goto-control">
+        <input id="goto-{chart_id}" type="{input_type}" title="{input_title}">
+        <button id="goto-btn-{chart_id}" type="button">确定</button>
+      </div>
       <button class="collapse-btn" type="button" data-collapse="fx-table-{chart_id}">收起</button>
     </div>
   </div>
@@ -428,6 +428,8 @@ document.getElementById('logic-back').addEventListener('click', function(e) {{
     </table>
   </div>
 </section>
+"""
+        pen_section = f"""
 <section class="report-section">
   <div class="section-head">
     <h2>笔列表（候选{len(pen_rows)}笔，有效{sum(1 for row in pen_rows if row["status"] == "有效")}笔）</h2>
@@ -443,6 +445,7 @@ document.getElementById('logic-back').addEventListener('click', function(e) {{
   </div>
 </section>
 """
+        return fx_section, pen_section
 
     def _make_chart(self, meta: CChanPlotMeta, label: str, chart_id: str) -> str:
         bars = list(meta.klu_iter())
@@ -576,46 +579,100 @@ document.getElementById('logic-back').addEventListener('click', function(e) {{
                 "seg": bool(bsp.is_seg),
             })
 
+        def moving_average(period: int) -> List[Optional[float]]:
+            values: List[Optional[float]] = []
+            closes: List[float] = []
+            for bar in bars:
+                closes.append(float(bar.close))
+                if len(closes) < period:
+                    values.append(None)
+                else:
+                    values.append(sum(closes[-period:]) / period)
+            return values
+
+        ma_defs = [
+            (5, "#d8dee9"),
+            (10, "#f59e0b"),
+            (20, "#b43ac4"),
+            (60, "#58a766"),
+        ]
+        ma_series = []
+        for period, color in ma_defs:
+            values = moving_average(period)
+            points = [
+                f"{left + i * bar_w + bar_w / 2:.1f},{yp(value):.1f}"
+                for i, value in enumerate(values)
+                if value is not None
+            ]
+            latest = next((value for value in reversed(values) if value is not None), None)
+            ma_series.append({
+                "period": period,
+                "color": color,
+                "points": " ".join(points),
+                "latest": latest,
+            })
+
         svg: List[str] = [
             f'<svg id="svg-{chart_id}" class="chan-chart-svg" xmlns="http://www.w3.org/2000/svg" '
             f'viewBox="{max(left, total_width - width)} 0 {width} {height}" preserveAspectRatio="none">'
         ]
-        svg.append(f'<rect x="{left}" y="{top}" width="{total_width-left-right}" height="{plot_h}" fill="#fafafa" stroke="#e4e7ec"/>')
+        svg.append(f'<rect x="{left}" y="{top}" width="{total_width-left-right}" height="{plot_h}" fill="#111827" stroke="#263244"/>')
         for i in range(9):
             y = top + plot_h * i / 8
             price = y_high - y_range * i / 8
-            svg.append(f'<line x1="{left}" y1="{y:.1f}" x2="{total_width-right}" y2="{y:.1f}" stroke="#eaecf0"/>')
-            svg.append(f'<text x="{left-6}" y="{y:.1f}" text-anchor="end" fill="#667085" font-size="10" dominant-baseline="middle">{_fmt_num(price, 2)}</text>')
+            svg.append(f'<line x1="{left}" y1="{y:.1f}" x2="{total_width-right}" y2="{y:.1f}" stroke="#223044" stroke-width=".8" opacity=".78"/>')
+            svg.append(f'<text class="chart-axis-label" x="{left-6}" y="{y:.1f}" text-anchor="end" fill="#7d89a1" font-size="10" dominant-baseline="middle">{_fmt_num(price, 2)}</text>')
+
+        svg.append(f'<g id="ma-layer-{chart_id}" class="ma-layer">')
+        legend_x = left + 8
+        legend_y = top + 14
+        for ma in ma_series:
+            if ma["latest"] is None:
+                continue
+            text = f'MA{ma["period"]}: {_fmt_num(ma["latest"])}'
+            svg.append(
+                f'<text class="chart-axis-label" x="{legend_x:.1f}" y="{legend_y:.1f}" '
+                f'fill="{ma["color"]}" font-size="10" font-weight="700">{html.escape(text)}</text>'
+            )
+            legend_x += max(56, len(text) * 6.2)
+
+        for ma in ma_series:
+            if ma["points"]:
+                svg.append(
+                    f'<polyline points="{ma["points"]}" fill="none" stroke="{ma["color"]}" '
+                    f'stroke-width="1.05" opacity=".9" stroke-linejoin="round" stroke-linecap="round"/>'
+                )
+        svg.append("</g>")
 
         for i, bar in enumerate(bars):
             x = left + i * bar_w
             cx = x + bar_w / 2
             up = float(bar.close) >= float(bar.open)
-            color = "#b42318" if up else "#175cd3"
+            color = "#d64b3c" if up else "#58a766"
             body_top = yp(max(float(bar.open), float(bar.close)))
             body_bottom = yp(min(float(bar.open), float(bar.close)))
-            svg.append(f'<line x1="{cx:.1f}" y1="{yp(bar.high):.1f}" x2="{cx:.1f}" y2="{yp(bar.low):.1f}" stroke="{color}" stroke-width="1"/>')
+            svg.append(f'<line x1="{cx:.1f}" y1="{yp(bar.high):.1f}" x2="{cx:.1f}" y2="{yp(bar.low):.1f}" stroke="{color}" stroke-width="1.1" opacity=".95"/>')
             if body_bottom - body_top < 1:
-                svg.append(f'<line x1="{x:.1f}" y1="{body_top:.1f}" x2="{x+bar_w-1:.1f}" y2="{body_top:.1f}" stroke="{color}" stroke-width="1.5"/>')
+                svg.append(f'<line x1="{x+1:.1f}" y1="{body_top:.1f}" x2="{x+bar_w-2:.1f}" y2="{body_top:.1f}" stroke="{color}" stroke-width="1.5"/>')
             else:
-                svg.append(f'<rect x="{x:.1f}" y="{body_top:.1f}" width="{bar_w-1}" height="{body_bottom-body_top:.1f}" fill="{color}"/>')
+                svg.append(f'<rect x="{x+1:.1f}" y="{body_top:.1f}" width="{max(1, bar_w-2)}" height="{body_bottom-body_top:.1f}" fill="{color}" opacity=".92"/>')
 
         for klc in meta.klc_list:
             if klc.end_idx <= klc.begin_idx:
                 continue
-            stroke = "#b42318" if klc.type == FX_TYPE.TOP else "#175cd3" if klc.type == FX_TYPE.BOTTOM else "#12b76a"
+            stroke = "#d64b3c" if klc.type == FX_TYPE.TOP else "#4c6fff" if klc.type == FX_TYPE.BOTTOM else "#58a766"
             x = left + klc.begin_idx * bar_w - 1
             w = (klc.end_idx - klc.begin_idx + 1) * bar_w + 1
             y = yp(klc.high) - 1
             h = max(5, yp(klc.low) - yp(klc.high) + 2)
             svg.append(
                 f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" '
-                f'fill="none" stroke="{stroke}" stroke-width="1.2" stroke-dasharray="4 2" opacity=".75" rx="1"/>'
+                f'fill="none" stroke="{stroke}" stroke-width="1" stroke-dasharray="4 3" opacity=".62" rx="1"/>'
             )
 
         for zs in zs_rects:
-            color = "#f79009" if zs["level"].startswith("bi") else "#d92d20"
-            width_px = 2.0 if zs["level"] == "bi" else 4.0
+            color = "#f59e0b" if zs["level"].startswith("bi") else "#ef4444"
+            width_px = 1.5 if zs["level"] == "bi" else 2.4
             dash = "" if zs["sure"] else ' stroke-dasharray="7 4"'
             opacity = ".88" if zs["level"] in ("bi", "seg") else ".52"
             svg.append(
@@ -624,7 +681,7 @@ document.getElementById('logic-back').addEventListener('click', function(e) {{
             )
             if zs["level"] in ("bi", "seg"):
                 svg.append(
-                    f'<text x="{zs["x"] + 4:.1f}" y="{zs["y"] - 4:.1f}" fill="{color}" font-size="10">'
+                    f'<text class="chart-note-label" x="{zs["x"] + 4:.1f}" y="{zs["y"] - 4:.1f}" fill="{color}" font-size="10">'
                     f'ZS {_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}</text>'
                 )
 
@@ -632,68 +689,73 @@ document.getElementById('logic-back').addEventListener('click', function(e) {{
             dash = "" if pen["sure"] else ' stroke-dasharray="5 4"'
             svg.append(
                 f'<line x1="{pen["x1"]:.1f}" y1="{pen["y1"]:.1f}" x2="{pen["x2"]:.1f}" y2="{pen["y2"]:.1f}" '
-                f'stroke="#111827" stroke-width="1.4" opacity=".84" stroke-linecap="round"{dash}/>'
+                f'stroke="#cbd5e1" stroke-width="1.25" opacity=".72" stroke-linecap="round"{dash}/>'
             )
 
         for seg in segments:
             dash = "" if seg["sure"] else ' stroke-dasharray="7 5"'
             svg.append(
                 f'<line x1="{seg["x1"]:.1f}" y1="{seg["y1"]:.1f}" x2="{seg["x2"]:.1f}" y2="{seg["y2"]:.1f}" '
-                f'stroke="#067647" stroke-width="3.2" opacity=".76" stroke-linecap="round"{dash}/>'
+                f'stroke="#69a35f" stroke-width="2.4" opacity=".72" stroke-linecap="round"{dash}/>'
             )
 
+        svg.append(f'<g id="fractal-detail-layer-{chart_id}" class="fractal-detail-layer">')
         for idx, fx in enumerate(fractals):
             x, y, price = fx["x"], fx["y"], fx["price"]
             if fx["kind"] == "top":
                 svg.append(
-                    f'<polygon class="chart-fractal-marker" data-fx="{idx}" points="{x:.1f},{y:.1f} {x-5:.1f},{y-9:.1f} {x+5:.1f},{y-9:.1f}" fill="#175cd3"/>'
+                    f'<polygon class="chart-fractal-marker" data-fx="{idx}" points="{x:.1f},{y:.1f} {x-4:.1f},{y-7:.1f} {x+4:.1f},{y-7:.1f}" fill="#4c6fff"/>'
                 )
-                svg.append(f'<text x="{x:.1f}" y="{y-12:.1f}" text-anchor="middle" fill="#344054" font-size="9">{_fmt_num(price)}</text>')
+                svg.append(f'<text class="chart-price-label" x="{x:.1f}" y="{y-10:.1f}" text-anchor="middle" fill="#cbd5e1" font-size="7">{_fmt_num(price)}</text>')
             else:
                 svg.append(
-                    f'<polygon class="chart-fractal-marker" data-fx="{idx}" points="{x:.1f},{y:.1f} {x-5:.1f},{y+9:.1f} {x+5:.1f},{y+9:.1f}" fill="#f79009"/>'
+                    f'<polygon class="chart-fractal-marker" data-fx="{idx}" points="{x:.1f},{y:.1f} {x-4:.1f},{y+7:.1f} {x+4:.1f},{y+7:.1f}" fill="#f59e0b"/>'
                 )
-                svg.append(f'<text x="{x:.1f}" y="{y+20:.1f}" text-anchor="middle" fill="#344054" font-size="9">{_fmt_num(price)}</text>')
+                svg.append(f'<text class="chart-price-label" x="{x:.1f}" y="{y+15:.1f}" text-anchor="middle" fill="#cbd5e1" font-size="7">{_fmt_num(price)}</text>')
+        svg.append("</g>")
 
         svg.append("<defs>")
         for bsp in bs_points:
-            color = "#d92d20" if bsp["buy"] else "#067647"
+            color = "#ef4444" if bsp["buy"] else "#22c55e"
             svg.append(
                 f'<marker id="arrow-{chart_id}-{bsp["i"]}" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto">'
                 f'<path d="M0,0 L7,3.5 L0,7 Z" fill="{color}"/></marker>'
             )
         svg.append("</defs>")
         for bsp in bs_points:
-            color = "#d92d20" if bsp["buy"] else "#067647"
+            color = "#ef4444" if bsp["buy"] else "#22c55e"
             arrow_start_y = bsp["labelY"]
-            text_gap = 16 if bsp["seg"] else 14
+            text_gap = 12 if bsp["seg"] else 10
             text_y = arrow_start_y + text_gap if bsp["buy"] else arrow_start_y - text_gap
             point_y = bsp["y"]
             arrow_end_y = point_y + (6 if bsp["buy"] else -6)
-            fontsize = 17 if bsp["seg"] else 15
+            fontsize = 11 if bsp["seg"] else 10
             svg.append(
                 f'<line x1="{bsp["x"]:.1f}" y1="{arrow_start_y:.1f}" x2="{bsp["x"]:.1f}" y2="{arrow_end_y:.1f}" '
-                f'stroke="{color}" stroke-width="1.3" marker-end="url(#arrow-{chart_id}-{bsp["i"]})"/>'
+                f'stroke="{color}" stroke-width="1.15" opacity=".9" marker-end="url(#arrow-{chart_id}-{bsp["i"]})"/>'
             )
             svg.append(
-                f'<text x="{bsp["x"]:.1f}" y="{text_y:.1f}" text-anchor="middle" fill="{color}" '
+                f'<text class="chart-bsp-label" x="{bsp["x"]:.1f}" y="{text_y:.1f}" text-anchor="middle" fill="{color}" '
                 f'font-size="{fontsize}" font-weight="700" dominant-baseline="middle">'
                 f'{html.escape(bsp["text"])}</text>'
             )
 
-        svg.append(f'<line id="selected-{chart_id}" x1="{left}" y1="{top}" x2="{left}" y2="{height-bottom}" stroke="#1f6f8b" stroke-width="1.4" stroke-dasharray="4 3" style="display:none;pointer-events:none"/>')
+        svg.append(f'<rect id="focused-band-{chart_id}" x="{left}" y="{top}" width="{bar_w}" height="{plot_h}" fill="#60a5fa" opacity=".14" style="display:none;pointer-events:none"/>')
+        svg.append(f'<line id="focused-{chart_id}" x1="{left}" y1="{top}" x2="{left}" y2="{height-bottom}" stroke="#93c5fd" stroke-width="1.6" stroke-dasharray="5 4" style="display:none;pointer-events:none"/>')
+        svg.append(f'<line id="selected-{chart_id}" x1="{left}" y1="{top}" x2="{left}" y2="{height-bottom}" stroke="#94a3b8" stroke-width="1.2" stroke-dasharray="4 3" style="display:none;pointer-events:none"/>')
         svg.append(
             f'<g id="crosshair-{chart_id}" style="display:none;pointer-events:none">'
-            f'<line id="crosshair-v-{chart_id}" x1="{left}" y1="{top}" x2="{left}" y2="{height-bottom}" stroke="#475467" stroke-width="1" stroke-dasharray="3 3"/>'
-            f'<line id="crosshair-h-{chart_id}" x1="{left}" y1="{top}" x2="{total_width-right}" y2="{top}" stroke="#475467" stroke-width="1" stroke-dasharray="3 3"/>'
-            f'<rect id="crosshair-price-bg-{chart_id}" x="{left}" y="{top-9}" width="54" height="18" rx="3" fill="#344054" opacity=".96"/>'
+            f'<line id="crosshair-v-{chart_id}" x1="{left}" y1="{top}" x2="{left}" y2="{height-bottom}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="3 3" opacity=".75"/>'
+            f'<line id="crosshair-h-{chart_id}" x1="{left}" y1="{top}" x2="{total_width-right}" y2="{top}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="3 3" opacity=".75"/>'
+            f'<rect id="crosshair-price-bg-{chart_id}" x="{left}" y="{top-9}" width="54" height="18" rx="3" fill="#334155" opacity=".96"/>'
             f'<text id="crosshair-price-text-{chart_id}" x="{left+27}" y="{top}" text-anchor="middle" fill="#fff" font-size="10" dominant-baseline="middle">-</text>'
             "</g>"
         )
         svg.append("</svg>")
-        detail_tables = self._make_detail_tables(meta, chart_id)
+        fx_table, pen_table = self._make_detail_tables(meta, chart_id, label)
 
         return f"""
+{fx_table}
 <div class="chart-shell">
   <div class="chart-toolbar">
     <strong>{html.escape(label)}</strong>
@@ -701,6 +763,7 @@ document.getElementById('logic-back').addEventListener('click', function(e) {{
     <span id="zoom-label-{chart_id}" class="zoom-label">-</span>
     <button id="zoom-out-{chart_id}" title="缩小" type="button">-</button>
     <button id="reset-{chart_id}" title="重置视图" type="button">重置</button>
+    <button id="ma-toggle-{chart_id}" class="ma-toggle" title="显示/隐藏均线" type="button" aria-pressed="false">均线</button>
     <span class="chart-help">滚轮缩放 · 拖拽平移 · 双击十字星 · 悬停查看 OHLC</span>
   </div>
   <div id="wrap-{chart_id}" class="chart-wrap">
@@ -708,17 +771,17 @@ document.getElementById('logic-back').addEventListener('click', function(e) {{
     <div id="tooltip-{chart_id}" class="tooltip"></div>
   </div>
   <div class="legend">
-    <span><i class="swatch" style="background:#b42318"></i>上涨K线</span>
-    <span><i class="swatch" style="background:#175cd3"></i>下跌K线/顶分型</span>
-    <span><i class="swatch" style="background:#f79009"></i>底分型</span>
-    <span><i class="swatch" style="background:#111827"></i>笔</span>
-    <span><i class="swatch" style="background:#067647"></i>段</span>
-    <span><i class="swatch" style="background:#f79009"></i>中枢</span>
-    <span><i class="swatch" style="background:#d92d20"></i>买点</span>
-    <span><i class="swatch" style="background:#067647"></i>卖点</span>
+    <span><i class="swatch" style="background:#d64b3c"></i>上涨K线</span>
+    <span><i class="swatch" style="background:#58a766"></i>下跌K线</span>
+    <span><i class="swatch" style="background:#4c6fff"></i>顶分型</span>
+    <span><i class="swatch" style="background:#f59e0b"></i>底分型/中枢</span>
+    <span><i class="swatch" style="background:#cbd5e1"></i>笔</span>
+    <span><i class="swatch" style="background:#69a35f"></i>段</span>
+    <span><i class="swatch" style="background:#ef4444"></i>买点</span>
+    <span><i class="swatch" style="background:#22c55e"></i>卖点</span>
   </div>
 </div>
-{detail_tables}
+{pen_table}
 <script>
 (function() {{
 var data = {{
@@ -734,6 +797,11 @@ var svg = document.getElementById('svg-{chart_id}');
 var wrap = document.getElementById('wrap-{chart_id}');
 var tip = document.getElementById('tooltip-{chart_id}');
 var selected = document.getElementById('selected-{chart_id}');
+var focused = document.getElementById('focused-{chart_id}');
+var focusedBand = document.getElementById('focused-band-{chart_id}');
+var maLayer = document.getElementById('ma-layer-{chart_id}');
+var maToggle = document.getElementById('ma-toggle-{chart_id}');
+var fractalDetailLayer = document.getElementById('fractal-detail-layer-{chart_id}');
 var crosshair = document.getElementById('crosshair-{chart_id}');
 var crosshairV = document.getElementById('crosshair-v-{chart_id}');
 var crosshairH = document.getElementById('crosshair-h-{chart_id}');
@@ -745,6 +813,7 @@ var totalWidth = {total_width};
 var yHigh = {y_high}, yLow = {y_low}, yRange = {y_range}, plotH = {plot_h};
 var viewW = {width}, viewH = chartH, originX = Math.max(left, totalWidth - viewW), originY = 0;
 var minVisibleBars = Math.min(data.totalBars, 24);
+var fractalDetailMaxBars = 138;
 var minViewW = Math.max(minVisibleBars * barW, 180);
 var maxViewW = Math.max(totalWidth, minViewW);
 var crosshairEnabled = false;
@@ -759,25 +828,61 @@ function viewHeightForWidth(w) {{
   var r = rect();
   return Math.max(120, Math.min(chartH, w * r.height / r.width));
 }}
+function priceToY(price) {{
+  return top + plotH - ((price - yLow) / yRange) * plotH;
+}}
+function autoFitY() {{
+  var start = Math.max(0, Math.floor((originX - left) / barW) - 2);
+  var end = Math.min(data.bars.length - 1, Math.ceil((originX + viewW - left) / barW) + 2);
+  var high = -Infinity, low = Infinity;
+  for (var i = start; i <= end; i++) {{
+    high = Math.max(high, data.bars[i].h);
+    low = Math.min(low, data.bars[i].l);
+  }}
+  if (!isFinite(high) || !isFinite(low) || high <= low) {{
+    originY = 0;
+    viewH = chartH;
+    return;
+  }}
+  var yTop = priceToY(high);
+  var yBottom = priceToY(low);
+  var visibleH = Math.max(48, yBottom - yTop);
+  var pad = Math.max(18, visibleH * 0.16);
+  viewH = Math.max(96, Math.min(chartH, visibleH + pad * 2));
+  originY = Math.max(0, Math.min(chartH - viewH, yTop - pad));
+}}
 function updateViewBox() {{
   viewW = Math.max(minViewW, Math.min(maxViewW, viewW));
-  viewH = viewHeightForWidth(viewW);
   originX = Math.max(0, Math.min(Math.max(0, totalWidth - viewW), originX));
-  originY = Math.max(0, Math.min(Math.max(0, chartH - viewH), originY));
+  autoFitY();
   svg.setAttribute('viewBox', originX.toFixed(1) + ' ' + originY.toFixed(1) + ' ' + viewW.toFixed(1) + ' ' + viewH.toFixed(1));
   updateZoomLabel();
   updateCrosshair();
 }}
 function resetView() {{
   var r = rect();
-  viewW = Math.max(minViewW, Math.min(maxViewW, Math.min(totalWidth, chartH * r.width / r.height)));
-  viewH = viewHeightForWidth(viewW);
+  var targetBars = Math.min(data.totalBars, Math.max(120, Math.round(r.width / 7.8)));
+  viewW = Math.max(minViewW, Math.min(maxViewW, targetBars * barW));
   originX = Math.max(0, totalWidth - viewW);
-  originY = Math.max(0, (chartH - viewH) / 2);
   updateViewBox();
 }}
 function updateZoomLabel() {{
-  document.getElementById('zoom-label-{chart_id}').textContent = Math.max(1, Math.round(viewW / barW)) + '根';
+  var visibleBars = Math.max(1, Math.round(viewW / barW));
+  document.getElementById('zoom-label-{chart_id}').textContent = visibleBars + '根';
+  fractalDetailLayer.classList.toggle('active', visibleBars <= fractalDetailMaxBars);
+  updateLabelScale();
+}}
+function updateLabelScale() {{
+  var scale = Math.max(0.36, Math.min(1, viewW / 780));
+  var axisScale = Math.max(0.62, Math.min(1, viewW / 900));
+  var axisSize = (10 * axisScale).toFixed(2);
+  var priceSize = Math.max(6, Math.min(8, 8 * scale)).toFixed(2);
+  var noteSize = (10 * scale).toFixed(2);
+  var bspSize = (10 * scale).toFixed(2);
+  panelRoot.querySelectorAll('.chart-axis-label').forEach(function(node) {{ node.setAttribute('font-size', axisSize); }});
+  panelRoot.querySelectorAll('.chart-price-label').forEach(function(node) {{ node.setAttribute('font-size', priceSize); }});
+  panelRoot.querySelectorAll('.chart-note-label').forEach(function(node) {{ node.setAttribute('font-size', noteSize); }});
+  panelRoot.querySelectorAll('.chart-bsp-label').forEach(function(node) {{ node.setAttribute('font-size', bspSize); }});
 }}
 function priceAtY(y) {{
   return yHigh - ((y - top) / plotH) * yRange;
@@ -813,7 +918,6 @@ function updateCrosshair() {{
 function zoomAt(factor, rx, ry) {{
   var oldW = viewW, oldH = viewH;
   viewW = Math.max(minViewW, Math.min(maxViewW, viewW * factor));
-  viewH = viewHeightForWidth(viewW);
   originX += rx * (oldW - viewW);
   originY += ry * (oldH - viewH);
   updateViewBox();
@@ -855,19 +959,23 @@ function focusBar(idx, shouldScroll) {{
   var b = data.bars[idx];
   var desiredW = Math.min(maxViewW, Math.max(minViewW, 96 * barW));
   viewW = desiredW;
-  viewH = viewHeightForWidth(viewW);
   originX = b.x - viewW * 0.5;
-  originY = Math.max(0, (chartH - viewH) / 2);
   updateViewBox();
   selected.setAttribute('x1', b.x.toFixed(1));
   selected.setAttribute('x2', b.x.toFixed(1));
   selected.style.display = 'block';
+  focused.setAttribute('x1', b.x.toFixed(1));
+  focused.setAttribute('x2', b.x.toFixed(1));
+  focused.style.display = 'block';
+  focusedBand.setAttribute('x', (b.x - barW / 2).toFixed(1));
+  focusedBand.setAttribute('width', barW.toFixed(1));
+  focusedBand.style.display = 'block';
   if (shouldScroll) wrap.scrollIntoView({{behavior:'smooth', block:'center'}});
 }}
 function findBarByTime(value) {{
   value = String(value || '').trim();
   if (!value) return -1;
-  var normalized = value.replace(/[年月]/g, '/').replace(/[日]/g, '').replace(/-/g, '/').replace(/\\s+/g, ' ');
+  var normalized = value.replace('T', ' ').replace(/[年月]/g, '/').replace(/[日]/g, '').replace(/-/g, '/').replace(/\\s+/g, ' ');
   var best = -1;
   for (var i = 0; i < data.bars.length; i++) {{
     var dt = data.bars[i].dt.replace(/-/g, '/');
@@ -916,11 +1024,16 @@ wrap.addEventListener('dblclick', function(e) {{
 document.getElementById('zoom-in-{chart_id}').addEventListener('click', function() {{ zoomAt(0.5, 0.5, 0.5); }});
 document.getElementById('zoom-out-{chart_id}').addEventListener('click', function() {{ zoomAt(2, 0.5, 0.5); }});
 document.getElementById('reset-{chart_id}').addEventListener('click', function() {{ tip.style.display = 'none'; resetView(); }});
+maToggle.addEventListener('click', function() {{
+  var active = maLayer.classList.toggle('active');
+  maToggle.classList.toggle('active', active);
+  maToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
+}});
 panelRoot.querySelectorAll('tr[data-target-idx]').forEach(function(row) {{
   row.addEventListener('click', function() {{
-    panelRoot.querySelectorAll('tr.selected-row').forEach(function(x) {{ x.classList.remove('selected-row'); }});
-    row.classList.add('selected-row');
-    focusBar(row.getAttribute('data-target-idx'), true);
+    panelRoot.querySelectorAll('tr.focused-row').forEach(function(x) {{ x.classList.remove('focused-row'); }});
+    row.classList.add('focused-row');
+    focusBar(row.getAttribute('data-target-idx'), false);
   }});
 }});
 panelRoot.querySelectorAll('.collapse-btn').forEach(function(btn) {{

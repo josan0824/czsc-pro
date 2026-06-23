@@ -1,6 +1,12 @@
 运行方式：
 PYTHONPYCACHEPREFIX=/private/tmp/chan_pycache MPLCONFIGDIR=/Users/josan/Downloads/chan.py-main/.matplotlib_cache /opt/homebrew/bin/python3.11 main.py
 
+/opt/homebrew/bin/python3.11 web_server.py --host 127.0.0.1 --port 8000
+
+http://127.0.0.1:8000/
+ /opt/homebrew/bin/python3.11 -m pip install -r Script/requirements.txt
+
+
 <p align="center">
 <img src="../Image/chan.py_image_1.svg" width="300"/>
 </p>

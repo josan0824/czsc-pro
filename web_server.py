@@ -377,13 +377,27 @@ button.quick.active {{
 }}
 .quick-list {{
   display:flex;
+  align-items:center;
   gap:6px;
-  flex-wrap:wrap;
   padding:8px 14px;
   background:#fff;
   border-bottom:1px solid var(--line);
 }}
+.quick-buttons {{
+  display:flex;
+  gap:6px;
+  flex:1;
+  min-width:0;
+  flex-wrap:wrap;
+}}
 .quick-list button {{ height:30px; padding:0 10px; font-size:12px; }}
+.logic-button {{
+  flex:0 0 auto;
+  border-color:#1570ef;
+  background:var(--accent-soft);
+  color:var(--accent);
+  font-weight:700;
+}}
 .status {{
   margin-left:auto;
   color:var(--muted);
@@ -403,6 +417,56 @@ iframe {{
   border-radius:6px;
   background:#fff;
 }}
+.logic-modal {{
+  position:fixed;
+  inset:0;
+  z-index:30;
+  display:none;
+  align-items:flex-start;
+  justify-content:center;
+  padding:7vh 18px 24px;
+  background:rgba(16,24,40,.44);
+}}
+.logic-modal.active {{ display:flex; }}
+.logic-dialog {{
+  width:min(920px,100%);
+  max-height:86vh;
+  display:grid;
+  grid-template-rows:auto 1fr;
+  overflow:hidden;
+  border:1px solid #d0d5dd;
+  border-radius:8px;
+  background:#fff;
+  box-shadow:0 24px 72px rgba(16,24,40,.24);
+}}
+.logic-dialog-head {{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:14px 16px;
+  border-bottom:1px solid #eaecf0;
+}}
+.logic-dialog-title {{
+  margin:0;
+  font-size:16px;
+  line-height:1.3;
+}}
+.logic-close {{
+  width:32px;
+  min-width:32px;
+  padding:0;
+  font-size:20px;
+  line-height:1;
+}}
+.logic-dialog-body {{
+  overflow:auto;
+  padding:16px 18px 20px;
+}}
+.logic-dialog-body h1 {{ margin:0 0 8px; font-size:20px; line-height:1.3; }}
+.logic-dialog-body h2 {{ margin:18px 0 7px; font-size:16px; line-height:1.35; }}
+.logic-dialog-body p,.logic-dialog-body li {{ color:#344054; }}
+.logic-dialog-body code {{ background:#f2f4f7; padding:1px 4px; border-radius:3px; }}
 @media (max-width:800px) {{
   .topbar {{
     align-items:stretch;
@@ -411,6 +475,8 @@ iframe {{
   .query {{ flex-wrap:wrap; }}
   button.auto-refresh {{ margin-left:0; }}
   .status {{ margin-left:0; }}
+  .quick-list {{ align-items:flex-start; }}
+  .logic-button {{ margin-left:auto; }}
   iframe {{ height:calc(100vh - 190px); }}
 }}
 </style>
@@ -446,11 +512,25 @@ iframe {{
         <span class="status" id="status">入口：http://{html.escape(host)}:{port}/</span>
       </form>
     </div>
-    <nav class="quick-list" id="quick-list"></nav>
+    <nav class="quick-list">
+      <div class="quick-buttons" id="quick-list"></div>
+      <button class="logic-button" id="logic-open" type="button">划分逻辑</button>
+    </nav>
   </header>
   <main class="frame-wrap">
     <iframe id="chart-frame" title="缠论图表" src="{chart_url}"></iframe>
   </main>
+</div>
+<div class="logic-modal" id="logic-modal" aria-hidden="true">
+  <section class="logic-dialog" role="dialog" aria-modal="true" aria-labelledby="logic-title">
+    <div class="logic-dialog-head">
+      <h2 class="logic-dialog-title" id="logic-title">划分逻辑</h2>
+      <button class="logic-close" id="logic-close" type="button" aria-label="关闭">×</button>
+    </div>
+    <div class="logic-dialog-body" id="logic-body">
+      <p>图表加载完成后可查看当前代码生成的划分逻辑。</p>
+    </div>
+  </section>
 </div>
 <script>
 var quickItems = {quick_items};
@@ -463,6 +543,10 @@ var frame = document.getElementById('chart-frame');
 var quickList = document.getElementById('quick-list');
 var statusEl = document.getElementById('status');
 var autoRefreshBtn = document.getElementById('auto-refresh-btn');
+var logicOpenBtn = document.getElementById('logic-open');
+var logicModal = document.getElementById('logic-modal');
+var logicCloseBtn = document.getElementById('logic-close');
+var logicBody = document.getElementById('logic-body');
 var autoRefreshEnabled = false;
 var autoRefreshTimer = null;
 var chartLoading = false;
@@ -584,6 +668,24 @@ function syncControlsFromFrame() {{
     }}
   }} catch (err) {{}}
 }}
+function getLogicHtmlFromFrame() {{
+  try {{
+    var source = frame.contentDocument && frame.contentDocument.getElementById('logic-content');
+    if (source && source.innerHTML.trim()) return source.innerHTML;
+  }} catch (err) {{}}
+  return '<h1>当前分型与笔划分逻辑</h1><p>当前图表还没有完成加载，请稍后再打开。</p>';
+}}
+function openLogicModal() {{
+  logicBody.innerHTML = getLogicHtmlFromFrame();
+  logicModal.classList.add('active');
+  logicModal.setAttribute('aria-hidden', 'false');
+  logicCloseBtn.focus();
+}}
+function closeLogicModal() {{
+  logicModal.classList.remove('active');
+  logicModal.setAttribute('aria-hidden', 'true');
+  logicOpenBtn.focus();
+}}
 quickItems.forEach(function(item) {{
   var btn = document.createElement('button');
   btn.type = 'button';
@@ -605,6 +707,14 @@ frame.addEventListener('load', function() {{
 }});
 autoRefreshBtn.addEventListener('click', function() {{
   setAutoRefresh(!autoRefreshEnabled);
+}});
+logicOpenBtn.addEventListener('click', openLogicModal);
+logicCloseBtn.addEventListener('click', closeLogicModal);
+logicModal.addEventListener('click', function(e) {{
+  if (e.target === logicModal) closeLogicModal();
+}});
+window.addEventListener('keydown', function(e) {{
+  if (e.key === 'Escape' && logicModal.classList.contains('active')) closeLogicModal();
 }});
 setActive('{DEFAULT_CODE}');
 </script>
