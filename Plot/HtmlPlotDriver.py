@@ -158,6 +158,9 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
 .chart-bsp-label {{ vector-effect:non-scaling-stroke; }}
 .chart-pen-line {{ cursor:pointer; }}
 .fractal-range-box {{ pointer-events:none; }}
+.fractal-ref-box {{ pointer-events:none; }}
+.chart-fractal-marker.fx-ref-active {{ filter:drop-shadow(0 0 4px rgba(245,158,11,.95)); }}
+.chart-price-label.fx-ref-active {{ fill:#fef08a; font-weight:700; }}
 .chart-fractal-marker:hover {{ filter:drop-shadow(0 0 3px rgba(247,144,9,.85)); }}
 .tooltip {{
   position:absolute; z-index:5; display:none; min-width:190px; padding:8px 10px;
@@ -205,6 +208,20 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
 .data-table tr.focused-row {{ outline:2px solid #1570ef; outline-offset:-2px; background:#eff8ff; }}
 .note-cell {{ min-width:380px; line-height:1.55; }}
 .note-cell ol {{ margin:0; padding-left:18px; }}
+.fx-note-ref {{
+  display:inline;
+  height:auto;
+  min-width:0;
+  padding:1px 5px;
+  border:1px solid #f59e0b;
+  border-radius:3px;
+  background:#fffbeb;
+  color:#9a3412;
+  font:inherit;
+  font-weight:700;
+  cursor:pointer;
+}}
+.fx-note-ref:hover {{ background:#fef3c7; }}
 .detail-panel {{ max-width:980px; margin:0 auto; background:#fff; border:1px solid var(--line); border-radius:6px; padding:22px; }}
 .detail-panel h1 {{ margin-bottom:12px; }}
 .detail-panel h2 {{ margin:20px 0 8px; font-size:17px; }}
@@ -239,18 +256,7 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
   </header>
   {"".join(panels)}
   <section id="logic-content" class="logic-source">
-    <h1>当前分型与笔划分逻辑</h1>
-    <p>本页说明当前 HTML 报告使用的机械化计算口径，便于对照“原始分型列表”和“笔列表”复核每一步。</p>
-    <h2>1. K线包含处理</h2>
-    <p>先按相邻 K 线高低点关系合并包含关系，合并后的 K 线保留起止时间、最高价、最低价和内部原始 K 线区间。后续分型识别均基于合并后的 K 线。</p>
-    <h2>2. 原始分型识别</h2>
-    <p>每根合并 K 线与前后合并 K 线比较：中间 K 线高点和低点均高于两侧时识别为顶分型；中间 K 线高点和低点均低于两侧时识别为底分型。表格中的“分型价格”来自中间合并 K 线，“分型最高、分型最低”来自前中后三个合并 K 线及其内部原始 K 线。</p>
-    <h2>3. 分型过滤</h2>
-    <p>原始分型进入笔构造时需要满足顶底交替、分型占用区间和独立 K 线间隔要求。连续同类分型会按极值归并：顶分型保留高点更高者，底分型保留低点更低者；反向分型若区间重叠或间隔不足，会优先按成笔条件过滤。</p>
-    <h2>4. 笔构造</h2>
-    <p>有效笔由一组相邻有效分型端点构成。底分型到顶分型为向上笔，顶分型到底分型为向下笔。当前配置为 <code>bi_strict=True</code>、<code>bi_fx_check=totally</code>，因此端点之间需满足严格合并 K 线跨度和完全区间验证。</p>
-    <h2>5. 表格备注口径</h2>
-    <p>原始分型列表中“有效”表示该分型最终被某条笔的起点或终点采用；“已过滤”表示它未成为笔端点。备注会列出识别形态、成笔采用、同类极值或间隔/区间过滤等可审计原因。点击表格行可定位到对应 K 线。</p>
+    {self._logic_content_html()}
   </section>
 </main>
 <script>
@@ -284,12 +290,196 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
         return mapping.get(lv, lv.name)
 
     @staticmethod
-    def _note_html(notes: List[str]) -> str:
-        return "<ol>" + "".join(f"<li>{html.escape(note)}</li>" for note in notes) + "</ol>"
+    def _note_html(notes: List[Any]) -> str:
+        def render_note(note: Any) -> str:
+            if isinstance(note, dict) and "html" in note:
+                return str(note["html"])
+            return html.escape(str(note))
+
+        return "<ol>" + "".join(f"<li>{render_note(note)}</li>" for note in notes) + "</ol>"
+
+    @staticmethod
+    def _fx_note_ref(row: Dict[str, Any], prefix: str = "") -> str:
+        text = f'{prefix}{row["date"]} {_fx_label(row["kind"])} #{row["idx"]} {_fmt_num(row["price"])}'
+        title = f'高亮 {row["date"]} {_fx_label(row["kind"])}'
+        return (
+            f'<button class="fx-note-ref" type="button" data-fx-ref="{row["idx"]}" '
+            f'title="{html.escape(title)}">{html.escape(text)}</button>'
+        )
 
     @staticmethod
     def _time_input_type(label: str) -> str:
         return "date" if label in ("日线", "周线", "月线") else "datetime-local"
+
+    @staticmethod
+    def _logic_content_html() -> str:
+        return """
+<div class="logic-guide">
+  <div class="logic-intro">
+    <h1>当前分型与笔划分逻辑</h1>
+    <p>本说明按本报告的实际计算链路展开：原始 K 线先做包含处理，随后在合并 K 线上识别顶底分型，再按成笔条件筛选为有效端点，最后生成笔列表和图上标注。</p>
+  </div>
+  <div class="logic-tabs" role="tablist" aria-label="划分逻辑章节">
+    <button class="logic-tab active" type="button" data-logic-tab="include">包含处理</button>
+    <button class="logic-tab" type="button" data-logic-tab="fractal">分型识别</button>
+    <button class="logic-tab" type="button" data-logic-tab="filter">分型过滤</button>
+    <button class="logic-tab" type="button" data-logic-tab="pen">笔构造</button>
+    <button class="logic-tab" type="button" data-logic-tab="gap">缺口处理</button>
+    <button class="logic-tab" type="button" data-logic-tab="report">表格口径</button>
+  </div>
+  <section class="logic-tab-panel active" data-logic-panel="include">
+    <h2>1. K线包含处理</h2>
+    <p>本级别原始 K 线进入计算后，会先合并相邻的包含关系。后续的分型识别不是直接拿原始 K 线做三根比较，而是拿合并后的 K 线，也就是代码中的 <code>CKLine</code>。</p>
+    <div class="logic-grid">
+      <div class="logic-card">
+        <h3>什么时候算包含</h3>
+        <p>若两根相邻 K 线的高低点区间互相包含，例如 A 的高点大于等于 B 的高点且 A 的低点小于等于 B 的低点，或反过来 B 包住 A，就会进入合并流程。</p>
+        <p>合并后的 K 线会保留内部原始 K 线列表，所以表格里仍能回看它覆盖了哪些原始 K。</p>
+      </div>
+      <div class="logic-card">
+        <h3>方向决定合并后的高低</h3>
+        <p>上升方向合并时：高点取更高值，低点也取更高值；下降方向合并时：高点取更低值，低点也取更低值。</p>
+        <pre><code>向上合并: high = max(high1, high2), low = max(low1, low2)
+向下合并: high = min(high1, high2), low = min(low1, low2)</code></pre>
+      </div>
+    </div>
+    <div class="logic-example">
+      <strong>例子：</strong>若当前方向向上，前一根范围是 10.00-12.00，后一根范围是 11.00-11.80，后一根被包含。合并后不是简单保留 10.00-12.00，而是保留 11.00-12.00，因为上升包含处理会把低点抬高。这样做的目的，是减少包含关系造成的分型假信号。
+    </div>
+  </section>
+  <section class="logic-tab-panel" data-logic-panel="fractal">
+    <h2>2. 原始分型识别</h2>
+    <p>包含处理完成后，系统逐根检查合并 K 线的前、中、后三根。只有中间这根合并 K 与左右两根构成明确高低关系时，才会标记为顶分型或底分型。</p>
+    <div class="logic-rule-table">
+      <div><strong>顶分型</strong><span>pre.high &lt; self.high，next.high &lt; self.high，并且 pre.low &lt; self.low，next.low &lt; self.low。中间合并 K 的高点和低点都高于两侧。</span></div>
+      <div><strong>底分型</strong><span>pre.high &gt; self.high，next.high &gt; self.high，并且 pre.low &gt; self.low，next.low &gt; self.low。中间合并 K 的高点和低点都低于两侧。</span></div>
+    </div>
+    <div class="logic-grid">
+      <div class="logic-card">
+        <h3>分型价格</h3>
+        <p>顶分型价格取中间合并 K 的 high，底分型价格取中间合并 K 的 low。这是图上三角形旁边的价格，也是笔端点价格的来源。</p>
+      </div>
+      <div class="logic-card">
+        <h3>分型最高/最低</h3>
+        <p>为了判断两个分型是否重叠，表格中的“分型最高/分型最低”按前、中、后三个合并 K 及其内部原始 K 取极值，不只看中间 K。</p>
+      </div>
+    </div>
+    <div class="logic-example">
+      <strong>例子：</strong>某顶分型的中间 K 高点是 4233.43，但前后两根合并 K 的最低点可能分别是 4231.26、4231.56。用于完全区间验证时，顶分型下沿要看三根合并 K 的最低值，而不是只看 4233.43 这根中间 K。
+    </div>
+  </section>
+  <section class="logic-tab-panel" data-logic-panel="filter">
+    <h2>3. 分型过滤与有效端点</h2>
+    <p>原始分型只说明图形上出现了顶或底，但不代表它一定能成为笔端点。能进入笔列表的分型才会被标记为“有效”，其他会在原始分型列表里显示为“已过滤”。</p>
+    <div class="logic-grid">
+      <div class="logic-card">
+        <h3>同类分型归并</h3>
+        <p>如果连续出现同类分型，系统会保留极值更强的那个：顶分型优先保留高点更高者，底分型优先保留低点更低者。</p>
+      </div>
+      <div class="logic-card">
+        <h3>顶底必须交替</h3>
+        <p>一笔的两个端点必须一顶一底。顶到顶、底到底不会直接构成新笔，除非它替代了上一端点并使整体结构继续成立。</p>
+      </div>
+      <div class="logic-card">
+        <h3>跨度必须足够</h3>
+        <p>当前 <code>bi_strict=True</code>，严格模式下端点之间的合并 K 跨度至少需要达到 4。若中间合并 K 数量不足，即使价格形态看起来像反向分型，也不会成笔。</p>
+      </div>
+      <div class="logic-card">
+        <h3>区间必须通过验证</h3>
+        <p>当前 <code>bi_fx_check=totally</code>，使用最严格的完全分离检查。它要求两个端点分型的三根合并 K 区间完全错开。</p>
+      </div>
+    </div>
+  </section>
+  <section class="logic-tab-panel" data-logic-panel="pen">
+    <h2>4. 笔构造规则</h2>
+    <p>笔由相邻有效分型端点构成。底分型到顶分型是向上笔，顶分型到底分型是向下笔。构造时会依次检查方向、跨度、端点区间和最后一笔是否确认。</p>
+    <div class="logic-rule-table">
+      <div><strong>顶到底</strong><span>顶分型的三根合并 K 最低点必须高于底分型的三根合并 K 最高点：<code>top_self_low &gt; bottom_item_high</code>。</span></div>
+      <div><strong>底到顶</strong><span>底分型的三根合并 K 最高点必须低于顶分型的三根合并 K 最低点：<code>bottom_cur_high &lt; top_item_low</code>。</span></div>
+    </div>
+    <div class="logic-example">
+      <strong>例子：</strong>顶分型 A 的三根合并 K 最低值是 4231.26，底分型 B 的三根合并 K 最高值是 4231.16。因为 4231.26 &gt; 4231.16，在 <code>totally</code> 模式下价格区间刚好完全分离，所以这组顶到底可以通过区间验证。若 B 的最高值等于或高于 4231.26，就会被视为区间未完全分离。
+    </div>
+    <div class="logic-example">
+      <strong>虚笔说明：</strong>最后一笔可能随最新 K 线变化而调整。如果终点还没完全确认，表格状态会显示“未确认”，后续行情可能改写最后一个端点。
+    </div>
+  </section>
+  <section class="logic-tab-panel" data-logic-panel="gap">
+    <h2>5. 缺口处理</h2>
+    <p>当前算法没有把缺口作为分型的独立确认条件。缺口主要影响两个位置：一是笔的跨度计数是否额外加一，二是 <code>seg_algo=chan</code> 线段算法里的特征序列分型确认。</p>
+    <div class="logic-grid">
+      <div class="logic-card">
+        <h3>缺口如何识别</h3>
+        <p>相邻合并 K 之间如果价格区间没有重叠，就认为两者之间有缺口。代码用原始 K 极值区间判断：前一合并 K 的内部最低/最高，与后一合并 K 的内部最低/最高不重叠。</p>
+        <pre><code>has_gap = not has_overlap(
+  prev_min_low, prev_max_high,
+  next_min_low, next_max_high,
+  equal=True
+)</code></pre>
+      </div>
+      <div class="logic-card">
+        <h3>当前页面配置</h3>
+        <p>当前图表服务没有显式设置 <code>gap_as_kl</code>，因此走 <code>CChanConfig</code> 默认值 <code>gap_as_kl=False</code>。</p>
+        <p>实际效果：缺口不会被当成额外一根 K 线来增加成笔跨度。</p>
+      </div>
+    </div>
+    <div class="logic-rule-table">
+      <div><strong>gap_as_kl=False</strong><span>端点跨度只按合并 K 索引差计算：<code>span = end_idx - begin_idx</code>。即使中间有缺口，也不会降低成笔所需的实际合并 K 数量。</span></div>
+      <div><strong>gap_as_kl=True</strong><span>当端点跨度较短时，会逐段检查中间相邻合并 K 是否有缺口；每出现一个缺口，跨度额外加 1。这样某些原本因为跨度不足而不能成笔的顶底分型，可能因为缺口补足跨度而成笔。</span></div>
+    </div>
+    <div class="logic-example">
+      <strong>笔的例子：</strong>严格模式下成笔要求跨度至少为 4。若两个端点合并 K 索引差只有 3，当前 <code>gap_as_kl=False</code> 时不会成笔；如果改成 <code>gap_as_kl=True</code>，并且两端点之间存在一个缺口，跨度会按 4 处理，才有机会进入后续 <code>bi_fx_check</code> 区间验证。
+    </div>
+    <div class="logic-grid">
+      <div class="logic-card">
+        <h3>缺口与分型</h3>
+        <p>分型识别仍然只看前、中、后三根合并 K 的高低关系。缺口只会通过价格断层自然改变这些高低关系，不会额外生成或取消分型。</p>
+      </div>
+      <div class="logic-card">
+        <h3>缺口与成笔验证</h3>
+        <p>缺口补跨度只影响 <code>satisfy_bi_span</code>。即使补足跨度，仍必须通过顶底交替、同类极值替换、<code>bi_fx_check=totally</code> 的三 K 区间完全分离，以及 <code>bi_end_is_peak</code> 等后续条件。</p>
+      </div>
+      <div class="logic-card">
+        <h3>缺口与线段</h3>
+        <p>默认 <code>seg_algo=chan</code> 使用特征序列。若特征序列分型的中间元素与前一元素之间有缺口，会标记 <code>gap=True</code>；此时线段结束不会直接确认，而是继续查找反向分型作为确认。</p>
+      </div>
+      <div class="logic-card">
+        <h3>线段算法差异</h3>
+        <p><code>seg_algo=chan</code> 会走 <code>CEigen.gap</code> 分支；其他线段算法如 <code>1+1</code> 或 <code>break</code> 主要按笔高低突破关系划分，不使用这套特征序列缺口确认逻辑。</p>
+      </div>
+    </div>
+    <div class="logic-example">
+      <strong>线段的例子：</strong>上升线段寻找下降笔构成的特征序列顶分型时，如果中间特征元素形成顶分型，同时它和前一个特征元素之间出现向上断开的价格区间，系统会先标记缺口。此时不能只凭这个特征序列分型立刻确认线段结束，还要看后面是否出现反向分型证据。
+    </div>
+    <div class="logic-rule-table">
+      <div><strong>缺口与中枢</strong><span>中枢没有单独的缺口规则。中枢创建、延伸、合并仍按笔或线段区间是否重叠判断。缺口只会通过笔/线段的高低区间间接影响是否能形成重叠。</span></div>
+      <div><strong>配置建议</strong><span>若希望缺口在笔级别具备“补一根 K”的作用，需要显式设置 <code>gap_as_kl=True</code>；若希望当前页面继续严格按实际合并 K 数量成笔，则保持当前默认 <code>False</code>。</span></div>
+    </div>
+  </section>
+  <section class="logic-tab-panel" data-logic-panel="report">
+    <h2>6. 表格与图上标注口径</h2>
+    <p>报告里的图形和表格是为了复核计算过程，不是额外再跑一套规则。图上的三角形、虚线框、笔线和表格行都来自同一份分型与笔数据。</p>
+    <div class="logic-grid">
+      <div class="logic-card">
+        <h3>原始分型列表</h3>
+        <p>列出所有识别出来的顶/底分型。“有效”表示被某条笔用作起点或终点；“已过滤”表示未进入最终笔结构。</p>
+      </div>
+      <div class="logic-card">
+        <h3>分型最高/最低</h3>
+        <p>这两列用于观察顶底是否重合，采用前中后三个合并 K 覆盖的原始 K 极值，并显示对应发生时间。</p>
+      </div>
+      <div class="logic-card">
+        <h3>图上三角形</h3>
+        <p>实心三角形表示有效分型，虚线空心三角形表示被过滤的原始分型。K 线数量较多时会隐藏完整分型标注，避免遮挡行情。</p>
+      </div>
+      <div class="logic-card">
+        <h3>点击联动</h3>
+        <p>点击图上的分型数字或三角形，会在原始分型列表内滚动到对应行，并在图上画出该分型覆盖区间。点击“清理”才会移除这些虚线框。</p>
+      </div>
+    </div>
+  </section>
+</div>
+"""
 
     def _build_report_rows(self, meta: CChanPlotMeta) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         endpoint_map: Dict[int, List[str]] = {}
@@ -311,6 +501,10 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
             pen_rows.append({
                 "idx": i + 1,
                 "direction": direction,
+                "begin_klc_idx": int(bi.begin_klc_idx),
+                "end_klc_idx": int(bi.end_klc_idx),
+                "begin_x": int(bi.begin_x),
+                "end_x": int(bi.end_x),
                 "begin_date": _fmt_time(bi.begin_time),
                 "begin_kind": begin_kind,
                 "begin_price": float(bi.begin_y),
@@ -325,7 +519,6 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
             })
 
         fx_rows: List[Dict[str, Any]] = []
-        last_valid: Optional[Dict[str, Any]] = None
         for klc_pos, klc in enumerate(meta.klc_list):
             if klc.type not in (FX_TYPE.TOP, FX_TYPE.BOTTOM):
                 continue
@@ -346,27 +539,9 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
             notes = [
                 f"识别到{_fx_label(kind)}形态：分型价格{_fmt_num(price)}，分型最高{_fmt_num(fx_high)}，分型最低{_fmt_num(fx_low)}",
             ]
-            if is_valid:
-                notes.append("作为" + "、".join(endpoint_map[int(klc.idx)]) + "保留")
-                if last_valid and last_valid["kind"] == kind:
-                    better = price >= float(last_valid["price"]) if kind == "top" else price <= float(last_valid["price"])
-                    if better:
-                        notes.append(f"同类分型归并后，当前{_fx_label(kind)}极值更强，替代前一同类端点")
-                    else:
-                        notes.append(f"同类分型归并后仍被保留，因后续笔结构需要该端点")
-                elif last_valid:
-                    notes.append(f"与前一有效{_fx_label(last_valid['kind'])}交替，满足笔端点方向要求")
-                last_valid = {"kind": kind, "price": price, "date": date}
-            else:
-                if last_valid is None:
-                    notes.append("未成为笔端点：首笔形成前的候选分型被缓存或被后续更合适端点替换")
-                elif last_valid["kind"] == kind:
-                    notes.append(f"未成为笔端点：与前一有效{_fx_label(kind)}同类，按极值规则保留更强者")
-                else:
-                    notes.append(f"未成为笔端点：与前一有效{_fx_label(last_valid['kind'])}之间未通过严格跨度或完全区间验证")
-                notes.append("当前报告未记录逐步回溯日志，以上备注按最终有效笔端点反推常见过滤路径")
             fx_rows.append({
                 "idx": len(fx_rows) + 1,
+                "klc_idx": int(klc.idx),
                 "date": date,
                 "kind": kind,
                 "price": price,
@@ -378,6 +553,143 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
                 "notes": notes,
                 "target_idx": int((klc.begin_idx + klc.end_idx) / 2),
             })
+        valid_rows = [row for row in fx_rows if row["status"] == "有效"]
+        row_by_klc_idx = {row["klc_idx"]: row for row in fx_rows}
+
+        def totally_check_result(start: Dict[str, Any], end: Dict[str, Any]) -> tuple[Optional[bool], str]:
+            if start["kind"] == "top" and end["kind"] == "bottom":
+                ok = start["low"] > end["high"]
+                expr = f'{_fmt_num(start["low"])} &gt; {_fmt_num(end["high"])}'
+                meaning = "顶分型三K最低 &gt; 底分型三K最高"
+            elif start["kind"] == "bottom" and end["kind"] == "top":
+                ok = start["high"] < end["low"]
+                expr = f'{_fmt_num(start["high"])} &lt; {_fmt_num(end["low"])}'
+                meaning = "底分型三K最高 &lt; 顶分型三K最低"
+            else:
+                return None, "同类分型不能直接做顶底成笔区间验证"
+            return ok, f'{meaning}：{expr}，结果：{"通过" if ok else "不通过"}'
+
+        def totally_check_html(start: Dict[str, Any], end: Dict[str, Any]) -> str:
+            return totally_check_result(start, end)[1]
+
+        def containing_pen(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+            return next(
+                (
+                    pen for pen in pen_rows
+                    if pen["begin_x"] < row["target_idx"] < pen["end_x"]
+                ),
+                None,
+            )
+
+        def pen_desc_html(pen: Dict[str, Any]) -> str:
+            begin_row = row_by_klc_idx.get(pen["begin_klc_idx"])
+            end_row = row_by_klc_idx.get(pen["end_klc_idx"])
+            begin_ref = self._fx_note_ref(begin_row) if begin_row else html.escape(pen["begin_date"])
+            end_ref = self._fx_note_ref(end_row) if end_row else html.escape(pen["end_date"])
+            return f'第{pen["idx"]}笔（{_dir_label(pen["direction"])}）：起点 {begin_ref}，终点 {end_ref}'
+
+        for row in fx_rows:
+            prev_valid = next((item for item in reversed(valid_rows) if item["idx"] < row["idx"]), None)
+            next_valid = next((item for item in valid_rows if item["idx"] > row["idx"]), None)
+            prev_same = next((item for item in reversed(fx_rows[: row["idx"] - 1]) if item["kind"] == row["kind"]), None)
+            next_same = next((item for item in fx_rows[row["idx"]:] if item["kind"] == row["kind"]), None)
+            pen_inside = containing_pen(row)
+            notes = row["notes"]
+            if row["status"] == "有效":
+                notes.append("作为" + "、".join(endpoint_map[int(row["klc_idx"])]) + "保留为有效笔端点")
+                if prev_valid:
+                    relation = "同类端点更新" if prev_valid["kind"] == row["kind"] else "顶底交替"
+                    notes.append({
+                        "html": (
+                            f'前一有效端点：{self._fx_note_ref(prev_valid)}；当前处理关系：'
+                            f'{html.escape(relation)}。'
+                        )
+                    })
+                if prev_same and prev_same["status"] != "有效":
+                    better = row["price"] >= prev_same["price"] if row["kind"] == "top" else row["price"] <= prev_same["price"]
+                    if better:
+                        notes.append({
+                            "html": (
+                                f'同类候选被当前有效端点替代：{self._fx_note_ref(prev_same)}；'
+                                f'原因：当前{_fx_label(row["kind"])}极值更强。'
+                            )
+                        })
+                if next_same and next_same["status"] == "有效":
+                    notes.append({
+                        "html": (
+                            f'后续同类有效端点会继续修正当前方向：{self._fx_note_ref(next_same)}。'
+                        )
+                    })
+            else:
+                if pen_inside:
+                    notes.append({
+                        "html": (
+                            f'最终结构定位：当前分型落在 {pen_desc_html(pen_inside)} 的内部，'
+                            f'不是该笔的起点或终点。'
+                        )
+                    })
+                if prev_valid is None:
+                    notes.append("未成为笔端点：首笔形成前的候选分型，后续仍需等待反向有效分型确认")
+                elif prev_valid["kind"] == row["kind"]:
+                    current_more_extreme = row["price"] >= prev_valid["price"] if row["kind"] == "top" else row["price"] <= prev_valid["price"]
+                    if current_more_extreme:
+                        reason = (
+                            f'当前{_fx_label(row["kind"])}价格 {_fmt_num(row["price"])} '
+                            f'比前一有效同类 {_fmt_num(prev_valid["price"])} 更极端，但最终笔端点没有改写到当前分型；'
+                            f'这说明它在 <code>CBiList.update_bi_sure</code> 流程中没有成功成为上一笔的新端点，'
+                            f'随后被最终笔结构归入笔内部波动。'
+                        )
+                    else:
+                        reason = (
+                            f'前一有效同类分型价格 {_fmt_num(prev_valid["price"])} '
+                            f'比当前 {_fmt_num(row["price"])} 更极端，按同类极值规则当前候选较弱。'
+                        )
+                    notes.append({
+                        "html": (
+                            f'未成为笔端点：与前一有效同类分型比较；'
+                            f'影响分型：{self._fx_note_ref(prev_valid)}；原因：{reason}'
+                        )
+                    })
+                    if next_valid and next_valid["kind"] != row["kind"]:
+                        span_to_next = abs(next_valid["klc_idx"] - row["klc_idx"])
+                        notes.append({
+                            "html": (
+                                f'若尝试用当前分型连接后续反向有效端点 {self._fx_note_ref(next_valid)}：'
+                                f'合并K跨度={span_to_next}，严格模式要求 ≥ 4；'
+                                f'{totally_check_html(row, next_valid)}。最终仍未采用当前分型作为该笔起点。'
+                            )
+                        })
+                else:
+                    span = abs(row["klc_idx"] - prev_valid["klc_idx"])
+                    span_ok = span >= 4
+                    totally_ok, totally_text = totally_check_result(prev_valid, row)
+                    notes.append({
+                        "html": (
+                            f'未成为笔端点：与前一有效反向分型 {self._fx_note_ref(prev_valid)} '
+                            f'做候选成笔检查；合并K跨度={span}，严格模式要求 ≥ 4，'
+                            f'结果：{"通过" if span_ok else "不通过"}；'
+                            f'{totally_text}。'
+                        )
+                    })
+                    if span_ok and totally_ok and next_valid and next_valid["kind"] == row["kind"]:
+                        next_stronger = next_valid["price"] >= row["price"] if row["kind"] == "top" else next_valid["price"] <= row["price"]
+                        strength_text = "极值更强" if next_stronger else "最终结构采用"
+                        notes.append({
+                            "html": (
+                                f'关键原因：上面的候选成笔检查已通过，因此当前分型不是因为与 '
+                                f'{self._fx_note_ref(prev_valid)} 价格区间重叠而过滤；'
+                                f'后续出现同类有效端点 {self._fx_note_ref(next_valid)}，'
+                                f'其价格 {_fmt_num(next_valid["price"])} 相对当前 {_fmt_num(row["price"])} {strength_text}，'
+                                f'最终笔结构选择后续端点作为该方向终点，当前分型退化为笔内部候选。'
+                            )
+                        })
+                if next_valid:
+                    notes.append({
+                        "html": (
+                            f'后续最终采用的有效端点：{self._fx_note_ref(next_valid)}。'
+                            f'因此当前分型只作为从前一有效端点到该有效端点过程中的中间分型记录。'
+                        )
+                    })
         return fx_rows, pen_rows
 
     def _make_detail_tables(self, meta: CChanPlotMeta, chart_id: str, label: str) -> tuple[str, str]:
@@ -740,6 +1052,7 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
             )
 
         svg.append(f'<g id="fractal-range-layer-{chart_id}"></g>')
+        svg.append(f'<g id="fractal-ref-layer-{chart_id}"></g>')
         svg.append(f'<g id="fractal-detail-layer-{chart_id}" class="fractal-detail-layer">')
         for idx, fx in enumerate(fractals):
             x, y, price = fx["x"], fx["y"], fx["price"]
@@ -851,6 +1164,7 @@ var maLayer = document.getElementById('ma-layer-{chart_id}');
 var maToggle = document.getElementById('ma-toggle-{chart_id}');
 var fractalDetailLayer = document.getElementById('fractal-detail-layer-{chart_id}');
 var fractalRangeLayer = document.getElementById('fractal-range-layer-{chart_id}');
+var fractalRefLayer = document.getElementById('fractal-ref-layer-{chart_id}');
 var crosshair = document.getElementById('crosshair-{chart_id}');
 var crosshairV = document.getElementById('crosshair-v-{chart_id}');
 var crosshairH = document.getElementById('crosshair-h-{chart_id}');
@@ -1110,9 +1424,35 @@ function markFractalRange(rowId) {{
   rectNode.setAttribute('rx', '1');
   fractalRangeLayer.appendChild(rectNode);
 }}
+function highlightFractalOnChart(rowId) {{
+  var fx = data.fractals.find(function(item) {{ return String(item.row) === String(rowId); }});
+  if (!fx || !fractalRefLayer) return;
+  panelRoot.querySelectorAll('[data-fx-row].fx-ref-active').forEach(function(node) {{
+    node.classList.remove('fx-ref-active');
+  }});
+  panelRoot.querySelectorAll('[data-fx-row="' + rowId + '"].chart-price-label,[data-fx-row="' + rowId + '"].chart-fractal-marker').forEach(function(node) {{
+    node.classList.add('fx-ref-active');
+  }});
+  fractalRefLayer.replaceChildren();
+  var color = fx.kind === 'top' ? '#60a5fa' : '#fbbf24';
+  var rectNode = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  rectNode.setAttribute('class', 'fractal-ref-box');
+  rectNode.setAttribute('x', fx.boxX);
+  rectNode.setAttribute('y', fx.boxY);
+  rectNode.setAttribute('width', fx.boxW);
+  rectNode.setAttribute('height', fx.boxH);
+  rectNode.setAttribute('fill', color);
+  rectNode.setAttribute('fill-opacity', '.10');
+  rectNode.setAttribute('stroke', color);
+  rectNode.setAttribute('stroke-width', '1.8');
+  rectNode.setAttribute('stroke-dasharray', '2 2');
+  rectNode.setAttribute('rx', '1');
+  fractalRefLayer.appendChild(rectNode);
+}}
 function handleFractalPick(rowId) {{
   highlightFxRow(rowId);
   markFractalRange(rowId);
+  highlightFractalOnChart(rowId);
 }}
 
 wrap.addEventListener('wheel', function(e) {{
@@ -1156,6 +1496,10 @@ document.getElementById('zoom-out-{chart_id}').addEventListener('click', functio
 document.getElementById('reset-{chart_id}').addEventListener('click', function() {{ tip.style.display = 'none'; resetView(); }});
 document.getElementById('clear-{chart_id}').addEventListener('click', function() {{
   if (fractalRangeLayer) fractalRangeLayer.replaceChildren();
+  if (fractalRefLayer) fractalRefLayer.replaceChildren();
+  panelRoot.querySelectorAll('[data-fx-row].fx-ref-active').forEach(function(node) {{
+    node.classList.remove('fx-ref-active');
+  }});
 }});
 maToggle.addEventListener('click', function() {{
   var active = maLayer.classList.toggle('active');
@@ -1166,6 +1510,13 @@ panelRoot.querySelectorAll('[data-fx-row].chart-price-label,[data-fx-row].chart-
   node.addEventListener('click', function(e) {{
     e.stopPropagation();
     handleFractalPick(node.getAttribute('data-fx-row'));
+  }});
+}});
+panelRoot.querySelectorAll('.fx-note-ref[data-fx-ref]').forEach(function(btn) {{
+  btn.addEventListener('click', function(e) {{
+    e.preventDefault();
+    e.stopPropagation();
+    highlightFractalOnChart(btn.getAttribute('data-fx-ref'));
   }});
 }});
 panelRoot.querySelectorAll('.chart-pen-line[data-pen-row],.chart-pen-hit[data-pen-row]').forEach(function(line) {{
