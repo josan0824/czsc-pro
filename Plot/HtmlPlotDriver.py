@@ -153,7 +153,11 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
 .ma-layer.active {{ display:inline; }}
 .fractal-detail-layer {{ display:none; }}
 .fractal-detail-layer.active {{ display:inline; }}
-.chart-price-label {{ opacity:.82; }}
+.chart-price-label {{ cursor:pointer; opacity:.82; pointer-events:all; }}
+.crosshair-price-text {{ stroke-width:1px; }}
+.chart-bsp-label {{ vector-effect:non-scaling-stroke; }}
+.chart-pen-line {{ cursor:pointer; }}
+.fractal-range-box {{ pointer-events:none; }}
 .chart-fractal-marker:hover {{ filter:drop-shadow(0 0 3px rgba(247,144,9,.85)); }}
 .tooltip {{
   position:absolute; z-index:5; display:none; min-width:190px; padding:8px 10px;
@@ -240,7 +244,7 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
     <h2>1. K线包含处理</h2>
     <p>先按相邻 K 线高低点关系合并包含关系，合并后的 K 线保留起止时间、最高价、最低价和内部原始 K 线区间。后续分型识别均基于合并后的 K 线。</p>
     <h2>2. 原始分型识别</h2>
-    <p>每根合并 K 线与前后合并 K 线比较：中间 K 线高点和低点均高于两侧时识别为顶分型；中间 K 线高点和低点均低于两侧时识别为底分型。表格中的“分型价格、最高、最低”来自该合并 K 线及其内部原始 K 线。</p>
+    <p>每根合并 K 线与前后合并 K 线比较：中间 K 线高点和低点均高于两侧时识别为顶分型；中间 K 线高点和低点均低于两侧时识别为底分型。表格中的“分型价格”来自中间合并 K 线，“分型最高、分型最低”来自前中后三个合并 K 线及其内部原始 K 线。</p>
     <h2>3. 分型过滤</h2>
     <p>原始分型进入笔构造时需要满足顶底交替、分型占用区间和独立 K 线间隔要求。连续同类分型会按极值归并：顶分型保留高点更高者，底分型保留低点更低者；反向分型若区间重叠或间隔不足，会优先按成笔条件过滤。</p>
     <h2>4. 笔构造</h2>
@@ -322,17 +326,25 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
 
         fx_rows: List[Dict[str, Any]] = []
         last_valid: Optional[Dict[str, Any]] = None
-        for klc in meta.klc_list:
+        for klc_pos, klc in enumerate(meta.klc_list):
             if klc.type not in (FX_TYPE.TOP, FX_TYPE.BOTTOM):
                 continue
             kind = "top" if klc.type == FX_TYPE.TOP else "bottom"
             is_valid = int(klc.idx) in endpoint_map
             date = _fmt_time(klc.klu_list[len(klc.klu_list) // 2].time) if klc.klu_list else _fmt_time(klc.time_begin)
             price = float(klc.high if klc.type == FX_TYPE.TOP else klc.low)
-            high_klu = max(klc.klu_list, key=lambda x: float(x.high)) if klc.klu_list else None
-            low_klu = min(klc.klu_list, key=lambda x: float(x.low)) if klc.klu_list else None
+            fx_klus = []
+            for neighbor_pos in (klc_pos - 1, klc_pos, klc_pos + 1):
+                if 0 <= neighbor_pos < len(meta.klc_list):
+                    fx_klus.extend(list(meta.klc_list[neighbor_pos].klu_list))
+            if not fx_klus:
+                fx_klus = list(klc.klu_list)
+            high_klu = max(fx_klus, key=lambda x: float(x.high)) if fx_klus else None
+            low_klu = min(fx_klus, key=lambda x: float(x.low)) if fx_klus else None
+            fx_high = float(high_klu.high) if high_klu else float(klc.high)
+            fx_low = float(low_klu.low) if low_klu else float(klc.low)
             notes = [
-                f"识别到{_fx_label(kind)}形态：分型价格{_fmt_num(price)}，高点{_fmt_num(float(klc.high))}，低点{_fmt_num(float(klc.low))}",
+                f"识别到{_fx_label(kind)}形态：分型价格{_fmt_num(price)}，分型最高{_fmt_num(fx_high)}，分型最低{_fmt_num(fx_low)}",
             ]
             if is_valid:
                 notes.append("作为" + "、".join(endpoint_map[int(klc.idx)]) + "保留")
@@ -358,9 +370,9 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
                 "date": date,
                 "kind": kind,
                 "price": price,
-                "high": float(klc.high),
+                "high": fx_high,
                 "high_time": _fmt_time(high_klu.time) if high_klu else "",
-                "low": float(klc.low),
+                "low": fx_low,
                 "low_time": _fmt_time(low_klu.time) if low_klu else "",
                 "status": "有效" if is_valid else "已过滤",
                 "notes": notes,
@@ -377,7 +389,7 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
         for row in fx_rows:
             row_class = "clickable" if row["status"] == "有效" else "clickable invalid"
             fx_body.append(
-                f'<tr class="{row_class}" data-target-idx="{row["target_idx"]}">'
+                f'<tr class="{row_class}" data-fx-row="{row["idx"]}" data-target-idx="{row["target_idx"]}">'
                 f'<td>{row["idx"]}</td>'
                 f'<td>{html.escape(row["date"])}</td>'
                 f'<td>{_fx_label(row["kind"])}</td>'
@@ -391,10 +403,11 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
 
         pen_body = []
         for row in pen_rows:
+            pen_begin = row["target_idx"] - row["kl_cnt"] + 1
             pen_body.append(
-                f'<tr class="clickable" data-target-idx="{row["target_idx"]}">'
+                f'<tr class="clickable" data-pen-row="{row["idx"]}" data-pen-begin="{pen_begin}" data-pen-end="{row["target_idx"]}" data-target-idx="{row["target_idx"]}">'
                 f'<td>{row["idx"]}</td>'
-                f'<td>{_dir_label(row["direction"])}</td>'
+                f'<td class="pen-direction-cell">{_dir_label(row["direction"])}</td>'
                 f'<td>{html.escape(row["begin_date"])}</td>'
                 f'<td>{_fx_label(row["begin_kind"])}</td>'
                 f'<td>{_fmt_num(row["begin_price"])}</td>'
@@ -423,7 +436,7 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
   </div>
   <div id="fx-table-{chart_id}" class="table-wrap">
     <table class="data-table">
-      <thead><tr><th>#</th><th>日期</th><th>类型</th><th>分型价格</th><th>最高</th><th>最低</th><th>状态</th><th>备注</th></tr></thead>
+      <thead><tr><th>#</th><th>日期</th><th>类型</th><th>分型价格</th><th>分型最高</th><th>分型最低</th><th>状态</th><th>备注</th></tr></thead>
       <tbody>{"".join(fx_body) if fx_body else '<tr><td colspan="8">暂无分型</td></tr>'}</tbody>
     </table>
   </div>
@@ -487,10 +500,26 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
                 "x": round(x, 1),
             })
 
+        valid_fractal_idx = set()
+        for bi in meta.bi_list:
+            valid_fractal_idx.add(int(bi.begin_klc_idx))
+            valid_fractal_idx.add(int(bi.end_klc_idx))
+
         fractals = []
-        for klc in meta.klc_list:
+        for klc_pos, klc in enumerate(meta.klc_list):
             if klc.type not in (FX_TYPE.TOP, FX_TYPE.BOTTOM):
                 continue
+            box_start = klc.begin_idx
+            box_end = klc.end_idx
+            box_high = float(klc.high)
+            box_low = float(klc.low)
+            for neighbor_pos in (klc_pos - 1, klc_pos + 1):
+                if 0 <= neighbor_pos < len(meta.klc_list):
+                    neighbor = meta.klc_list[neighbor_pos]
+                    box_start = min(box_start, neighbor.begin_idx)
+                    box_end = max(box_end, neighbor.end_idx)
+                    box_high = max(box_high, float(neighbor.high))
+                    box_low = min(box_low, float(neighbor.low))
             x = left + (klc.begin_idx + klc.end_idx) * bar_w / 2 + bar_w / 2
             price = float(klc.high if klc.type == FX_TYPE.TOP else klc.low)
             fractals.append({
@@ -501,6 +530,12 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
                 "x": round(x, 1),
                 "y": round(yp(price), 1),
                 "date": klc.klu_list[len(klc.klu_list) // 2].time.to_str() if klc.klu_list else "",
+                "valid": int(klc.idx) in valid_fractal_idx,
+                "row": len(fractals) + 1,
+                "boxX": round(left + box_start * bar_w - 1, 1),
+                "boxY": round(yp(box_high) - 1, 1),
+                "boxW": round((box_end - box_start + 1) * bar_w + 1, 1),
+                "boxH": round(max(5, yp(box_low) - yp(box_high) + 2), 1),
             })
 
         pens = []
@@ -515,6 +550,7 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
                 "y2": round(yp(bi.end_y), 1),
                 "sure": bool(bi.is_sure),
                 "direction": "up" if bi.end_y >= bi.begin_y else "down",
+                "row": i + 1,
             })
 
         segments = []
@@ -564,7 +600,7 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
         zs_rects = collect_zs_rects(meta.zs_lst, "bi") + collect_zs_rects(meta.segzs_lst, "seg")
 
         bs_points = []
-        label_pad = base_price_range * 0.13
+        label_pad = base_price_range * 0.087
         for i, bsp in enumerate(all_bs_points):
             is_buy = bool(bsp.is_buy)
             label_price = float(bsp.y - label_pad if is_buy else bsp.y + label_pad)
@@ -688,7 +724,11 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
         for pen in pens:
             dash = "" if pen["sure"] else ' stroke-dasharray="5 4"'
             svg.append(
-                f'<line x1="{pen["x1"]:.1f}" y1="{pen["y1"]:.1f}" x2="{pen["x2"]:.1f}" y2="{pen["y2"]:.1f}" '
+                f'<line class="chart-pen-hit" data-pen-row="{pen["row"]}" x1="{pen["x1"]:.1f}" y1="{pen["y1"]:.1f}" x2="{pen["x2"]:.1f}" y2="{pen["y2"]:.1f}" '
+                f'stroke="transparent" stroke-width="10" stroke-linecap="round"{dash}/>'
+            )
+            svg.append(
+                f'<line class="chart-pen-line" data-pen-row="{pen["row"]}" x1="{pen["x1"]:.1f}" y1="{pen["y1"]:.1f}" x2="{pen["x2"]:.1f}" y2="{pen["y2"]:.1f}" '
                 f'stroke="#cbd5e1" stroke-width="1.25" opacity=".72" stroke-linecap="round"{dash}/>'
             )
 
@@ -699,19 +739,26 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
                 f'stroke="#69a35f" stroke-width="2.4" opacity=".72" stroke-linecap="round"{dash}/>'
             )
 
+        svg.append(f'<g id="fractal-range-layer-{chart_id}"></g>')
         svg.append(f'<g id="fractal-detail-layer-{chart_id}" class="fractal-detail-layer">')
         for idx, fx in enumerate(fractals):
             x, y, price = fx["x"], fx["y"], fx["price"]
+            valid = bool(fx["valid"])
+            stroke_extra = '' if valid else ' stroke-dasharray="2 2" stroke-width="1" opacity=".92"'
             if fx["kind"] == "top":
+                fill = "#4c6fff" if valid else "none"
+                stroke = "#4c6fff" if valid else "#8fb1ff"
                 svg.append(
-                    f'<polygon class="chart-fractal-marker" data-fx="{idx}" points="{x:.1f},{y:.1f} {x-4:.1f},{y-7:.1f} {x+4:.1f},{y-7:.1f}" fill="#4c6fff"/>'
+                    f'<polygon class="chart-fractal-marker" data-fx="{idx}" data-fx-row="{fx["row"]}" points="{x:.1f},{y:.1f} {x-1.8:.1f},{y-3.2:.1f} {x+1.8:.1f},{y-3.2:.1f}" fill="{fill}" stroke="{stroke}"{stroke_extra}/>'
                 )
-                svg.append(f'<text class="chart-price-label" x="{x:.1f}" y="{y-10:.1f}" text-anchor="middle" fill="#cbd5e1" font-size="7">{_fmt_num(price)}</text>')
+                svg.append(f'<text class="chart-price-label" data-fx-row="{fx["row"]}" x="{x:.1f}" y="{y-5:.1f}" text-anchor="middle" fill="#cbd5e1" font-size="3.6">{_fmt_num(price)}</text>')
             else:
+                fill = "#f59e0b" if valid else "none"
+                stroke = "#f59e0b" if valid else "#fbbf24"
                 svg.append(
-                    f'<polygon class="chart-fractal-marker" data-fx="{idx}" points="{x:.1f},{y:.1f} {x-4:.1f},{y+7:.1f} {x+4:.1f},{y+7:.1f}" fill="#f59e0b"/>'
+                    f'<polygon class="chart-fractal-marker" data-fx="{idx}" data-fx-row="{fx["row"]}" points="{x:.1f},{y:.1f} {x-1.8:.1f},{y+3.2:.1f} {x+1.8:.1f},{y+3.2:.1f}" fill="{fill}" stroke="{stroke}"{stroke_extra}/>'
                 )
-                svg.append(f'<text class="chart-price-label" x="{x:.1f}" y="{y+15:.1f}" text-anchor="middle" fill="#cbd5e1" font-size="7">{_fmt_num(price)}</text>')
+                svg.append(f'<text class="chart-price-label" data-fx-row="{fx["row"]}" x="{x:.1f}" y="{y+6:.1f}" text-anchor="middle" fill="#cbd5e1" font-size="3.6">{_fmt_num(price)}</text>')
         svg.append("</g>")
 
         svg.append("<defs>")
@@ -725,11 +772,11 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
         for bsp in bs_points:
             color = "#ef4444" if bsp["buy"] else "#22c55e"
             arrow_start_y = bsp["labelY"]
-            text_gap = 12 if bsp["seg"] else 10
+            text_gap = 9 if bsp["seg"] else 7
             text_y = arrow_start_y + text_gap if bsp["buy"] else arrow_start_y - text_gap
             point_y = bsp["y"]
-            arrow_end_y = point_y + (6 if bsp["buy"] else -6)
-            fontsize = 11 if bsp["seg"] else 10
+            arrow_end_y = point_y + (4 if bsp["buy"] else -4)
+            fontsize = 10 if bsp["seg"] else 9
             svg.append(
                 f'<line x1="{bsp["x"]:.1f}" y1="{arrow_start_y:.1f}" x2="{bsp["x"]:.1f}" y2="{arrow_end_y:.1f}" '
                 f'stroke="{color}" stroke-width="1.15" opacity=".9" marker-end="url(#arrow-{chart_id}-{bsp["i"]})"/>'
@@ -748,7 +795,7 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
             f'<line id="crosshair-v-{chart_id}" x1="{left}" y1="{top}" x2="{left}" y2="{height-bottom}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="3 3" opacity=".75"/>'
             f'<line id="crosshair-h-{chart_id}" x1="{left}" y1="{top}" x2="{total_width-right}" y2="{top}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="3 3" opacity=".75"/>'
             f'<rect id="crosshair-price-bg-{chart_id}" x="{left}" y="{top-9}" width="54" height="18" rx="3" fill="#334155" opacity=".96"/>'
-            f'<text id="crosshair-price-text-{chart_id}" x="{left+27}" y="{top}" text-anchor="middle" fill="#fff" font-size="10" dominant-baseline="middle">-</text>'
+            f'<text id="crosshair-price-text-{chart_id}" class="crosshair-price-text" x="{left+27}" y="{top}" text-anchor="middle" fill="#fff" font-size="10" dominant-baseline="middle">-</text>'
             "</g>"
         )
         svg.append("</svg>")
@@ -763,6 +810,7 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
     <span id="zoom-label-{chart_id}" class="zoom-label">-</span>
     <button id="zoom-out-{chart_id}" title="缩小" type="button">-</button>
     <button id="reset-{chart_id}" title="重置视图" type="button">重置</button>
+    <button id="clear-{chart_id}" title="清理分型标记" type="button">清理</button>
     <button id="ma-toggle-{chart_id}" class="ma-toggle" title="显示/隐藏均线" type="button" aria-pressed="false">均线</button>
     <span class="chart-help">滚轮缩放 · 拖拽平移 · 双击十字星 · 悬停查看 OHLC</span>
   </div>
@@ -802,6 +850,7 @@ var focusedBand = document.getElementById('focused-band-{chart_id}');
 var maLayer = document.getElementById('ma-layer-{chart_id}');
 var maToggle = document.getElementById('ma-toggle-{chart_id}');
 var fractalDetailLayer = document.getElementById('fractal-detail-layer-{chart_id}');
+var fractalRangeLayer = document.getElementById('fractal-range-layer-{chart_id}');
 var crosshair = document.getElementById('crosshair-{chart_id}');
 var crosshairV = document.getElementById('crosshair-v-{chart_id}');
 var crosshairH = document.getElementById('crosshair-h-{chart_id}');
@@ -873,12 +922,13 @@ function updateZoomLabel() {{
   updateLabelScale();
 }}
 function updateLabelScale() {{
+  var r = rect();
   var scale = Math.max(0.36, Math.min(1, viewW / 780));
   var axisScale = Math.max(0.62, Math.min(1, viewW / 900));
   var axisSize = (10 * axisScale).toFixed(2);
-  var priceSize = Math.max(6, Math.min(8, 8 * scale)).toFixed(2);
+  var priceSize = Math.max(2.8, Math.min(3.6, 3.6 * scale)).toFixed(2);
   var noteSize = (10 * scale).toFixed(2);
-  var bspSize = (10 * scale).toFixed(2);
+  var bspSize = Math.max(7, Math.min(12, 10 * viewW / Math.max(1, r.width))).toFixed(2);
   panelRoot.querySelectorAll('.chart-axis-label').forEach(function(node) {{ node.setAttribute('font-size', axisSize); }});
   panelRoot.querySelectorAll('.chart-price-label').forEach(function(node) {{ node.setAttribute('font-size', priceSize); }});
   panelRoot.querySelectorAll('.chart-note-label').forEach(function(node) {{ node.setAttribute('font-size', noteSize); }});
@@ -897,9 +947,16 @@ function svgPoint(e) {{
 function updateCrosshair() {{
   if (!crosshairEnabled || !crosshairPoint) return;
   var x = crosshairPoint.x, y = crosshairPoint.y, price = priceAtY(y);
-  var labelW = Math.max(52, Math.min(92, String(price.toFixed(2)).length * 7 + 14));
-  var labelX = Math.max(originX + 4, left);
-  if (labelX + labelW > originX + viewW - 4) labelX = originX + viewW - labelW - 4;
+  var r = rect();
+  var xScale = viewW / Math.max(1, r.width);
+  var yScale = viewH / Math.max(1, r.height);
+  var labelText = price.toFixed(2);
+  var fontSize = Math.max(3.5, Math.min(7, 6 * xScale));
+  var labelW = Math.max(28, Math.min(48, labelText.length * 3.8 + 9)) * xScale;
+  var labelH = 11 * yScale;
+  var margin = 20 * xScale;
+  var labelX = Math.max(originX + margin, left + 2 * xScale);
+  if (labelX + labelW > originX + viewW - 4 * xScale) labelX = originX + viewW - labelW - 4 * xScale;
   crosshairV.setAttribute('x1', x.toFixed(1));
   crosshairV.setAttribute('x2', x.toFixed(1));
   crosshairV.setAttribute('y1', originY.toFixed(1));
@@ -909,11 +966,14 @@ function updateCrosshair() {{
   crosshairH.setAttribute('y1', y.toFixed(1));
   crosshairH.setAttribute('y2', y.toFixed(1));
   crosshairBg.setAttribute('x', labelX.toFixed(1));
-  crosshairBg.setAttribute('y', (y - 9).toFixed(1));
+  crosshairBg.setAttribute('y', (y - labelH / 2).toFixed(1));
   crosshairBg.setAttribute('width', labelW.toFixed(1));
+  crosshairBg.setAttribute('height', labelH.toFixed(1));
+  crosshairBg.setAttribute('rx', (2 * xScale).toFixed(1));
   crosshairText.setAttribute('x', (labelX + labelW / 2).toFixed(1));
   crosshairText.setAttribute('y', y.toFixed(1));
-  crosshairText.textContent = price.toFixed(2);
+  crosshairText.setAttribute('font-size', fontSize.toFixed(1));
+  crosshairText.textContent = labelText;
 }}
 function zoomAt(factor, rx, ry) {{
   var oldW = viewW, oldH = viewH;
@@ -972,6 +1032,24 @@ function focusBar(idx, shouldScroll) {{
   focusedBand.style.display = 'block';
   if (shouldScroll) wrap.scrollIntoView({{behavior:'smooth', block:'center'}});
 }}
+function focusPen(beginIdx, endIdx) {{
+  beginIdx = Math.max(0, Math.min(data.bars.length - 1, Number(beginIdx) || 0));
+  endIdx = Math.max(beginIdx, Math.min(data.bars.length - 1, Number(endIdx) || beginIdx));
+  var beginBar = data.bars[beginIdx], endBar = data.bars[endIdx];
+  var penW = Math.max(minViewW, (endBar.x - beginBar.x) + 28 * barW);
+  viewW = Math.min(maxViewW, penW);
+  originX = (beginBar.x + endBar.x) * 0.5 - viewW * 0.5;
+  updateViewBox();
+  selected.setAttribute('x1', beginBar.x.toFixed(1));
+  selected.setAttribute('x2', beginBar.x.toFixed(1));
+  selected.style.display = 'block';
+  focused.setAttribute('x1', endBar.x.toFixed(1));
+  focused.setAttribute('x2', endBar.x.toFixed(1));
+  focused.style.display = 'block';
+  focusedBand.setAttribute('x', (beginBar.x - barW / 2).toFixed(1));
+  focusedBand.setAttribute('width', Math.max(barW, endBar.x - beginBar.x + barW).toFixed(1));
+  focusedBand.style.display = 'block';
+}}
 function findBarByTime(value) {{
   value = String(value || '').trim();
   if (!value) return -1;
@@ -983,6 +1061,58 @@ function findBarByTime(value) {{
     if (dt.slice(0, 10) === normalized.slice(0, 10)) best = i;
   }}
   return best;
+}}
+function highlightFxRow(rowId) {{
+  var row = panelRoot.querySelector('tr[data-fx-row="' + rowId + '"]');
+  var tableWrap = document.getElementById('fx-table-{chart_id}');
+  if (!row || !tableWrap) return;
+  panelRoot.querySelectorAll('tr.focused-row').forEach(function(x) {{ x.classList.remove('focused-row'); }});
+  row.classList.add('focused-row');
+  tableWrap.style.display = '';
+  var rowTop = row.offsetTop;
+  tableWrap.scrollTop = Math.max(0, rowTop - tableWrap.clientHeight * 0.42);
+}}
+function highlightPenRow(rowId) {{
+  var row = panelRoot.querySelector('tr[data-pen-row="' + rowId + '"]');
+  var tableWrap = document.getElementById('pen-table-{chart_id}');
+  if (!row || !tableWrap) return;
+  panelRoot.querySelectorAll('tr.focused-row').forEach(function(x) {{ x.classList.remove('focused-row'); }});
+  panelRoot.querySelectorAll('.chart-pen-line.focused-pen').forEach(function(x) {{
+    x.classList.remove('focused-pen');
+    x.setAttribute('stroke-width', '1.25');
+    x.setAttribute('opacity', '.72');
+  }});
+  row.classList.add('focused-row');
+  var penLine = panelRoot.querySelector('.chart-pen-line[data-pen-row="' + rowId + '"]');
+  if (penLine) {{
+    penLine.classList.add('focused-pen');
+    penLine.setAttribute('stroke-width', '2.6');
+    penLine.setAttribute('opacity', '1');
+  }}
+  tableWrap.style.display = '';
+  tableWrap.scrollTop = Math.max(0, row.offsetTop - tableWrap.clientHeight * 0.42);
+}}
+function markFractalRange(rowId) {{
+  var fx = data.fractals.find(function(item) {{ return String(item.row) === String(rowId); }});
+  if (!fx || !fractalRangeLayer) return;
+  var color = fx.kind === 'top' ? '#4c6fff' : '#f59e0b';
+  var rectNode = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  rectNode.setAttribute('class', 'fractal-range-box');
+  rectNode.setAttribute('x', fx.boxX);
+  rectNode.setAttribute('y', fx.boxY);
+  rectNode.setAttribute('width', fx.boxW);
+  rectNode.setAttribute('height', fx.boxH);
+  rectNode.setAttribute('fill', 'none');
+  rectNode.setAttribute('stroke', color);
+  rectNode.setAttribute('stroke-width', '1.3');
+  rectNode.setAttribute('stroke-dasharray', '3 2');
+  rectNode.setAttribute('opacity', '.95');
+  rectNode.setAttribute('rx', '1');
+  fractalRangeLayer.appendChild(rectNode);
+}}
+function handleFractalPick(rowId) {{
+  highlightFxRow(rowId);
+  markFractalRange(rowId);
 }}
 
 wrap.addEventListener('wheel', function(e) {{
@@ -1024,16 +1154,42 @@ wrap.addEventListener('dblclick', function(e) {{
 document.getElementById('zoom-in-{chart_id}').addEventListener('click', function() {{ zoomAt(0.5, 0.5, 0.5); }});
 document.getElementById('zoom-out-{chart_id}').addEventListener('click', function() {{ zoomAt(2, 0.5, 0.5); }});
 document.getElementById('reset-{chart_id}').addEventListener('click', function() {{ tip.style.display = 'none'; resetView(); }});
+document.getElementById('clear-{chart_id}').addEventListener('click', function() {{
+  if (fractalRangeLayer) fractalRangeLayer.replaceChildren();
+}});
 maToggle.addEventListener('click', function() {{
   var active = maLayer.classList.toggle('active');
   maToggle.classList.toggle('active', active);
   maToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
+}});
+panelRoot.querySelectorAll('[data-fx-row].chart-price-label,[data-fx-row].chart-fractal-marker').forEach(function(node) {{
+  node.addEventListener('click', function(e) {{
+    e.stopPropagation();
+    handleFractalPick(node.getAttribute('data-fx-row'));
+  }});
+}});
+panelRoot.querySelectorAll('.chart-pen-line[data-pen-row],.chart-pen-hit[data-pen-row]').forEach(function(line) {{
+  line.addEventListener('click', function(e) {{
+    e.stopPropagation();
+    highlightPenRow(line.getAttribute('data-pen-row'));
+  }});
 }});
 panelRoot.querySelectorAll('tr[data-target-idx]').forEach(function(row) {{
   row.addEventListener('click', function() {{
     panelRoot.querySelectorAll('tr.focused-row').forEach(function(x) {{ x.classList.remove('focused-row'); }});
     row.classList.add('focused-row');
     focusBar(row.getAttribute('data-target-idx'), false);
+  }});
+}});
+panelRoot.querySelectorAll('tr[data-pen-row] .pen-direction-cell').forEach(function(cell) {{
+  cell.addEventListener('click', function(e) {{
+    e.stopPropagation();
+    var row = cell.closest('tr[data-pen-row]');
+    if (!row) return;
+    panelRoot.querySelectorAll('tr.focused-row').forEach(function(x) {{ x.classList.remove('focused-row'); }});
+    row.classList.add('focused-row');
+    highlightPenRow(row.getAttribute('data-pen-row'));
+    focusPen(row.getAttribute('data-pen-begin'), row.getAttribute('data-pen-end'));
   }});
 }});
 panelRoot.querySelectorAll('.collapse-btn').forEach(function(btn) {{
