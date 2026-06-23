@@ -429,7 +429,7 @@ iframe {{
 }}
 .logic-modal.active {{ display:flex; }}
 .logic-dialog {{
-  width:min(920px,100%);
+  width:min(1080px,100%);
   max-height:86vh;
   display:grid;
   grid-template-rows:auto 1fr;
@@ -461,12 +461,107 @@ iframe {{
 }}
 .logic-dialog-body {{
   overflow:auto;
-  padding:16px 18px 20px;
+  padding:18px 20px 22px;
 }}
-.logic-dialog-body h1 {{ margin:0 0 8px; font-size:20px; line-height:1.3; }}
-.logic-dialog-body h2 {{ margin:18px 0 7px; font-size:16px; line-height:1.35; }}
+.logic-dialog-body h1 {{ margin:0 0 8px; font-size:21px; line-height:1.3; }}
+.logic-dialog-body h2 {{ margin:0 0 10px; font-size:18px; line-height:1.35; }}
+.logic-dialog-body h3 {{ margin:0 0 7px; font-size:14px; line-height:1.35; }}
 .logic-dialog-body p,.logic-dialog-body li {{ color:#344054; }}
 .logic-dialog-body code {{ background:#f2f4f7; padding:1px 4px; border-radius:3px; }}
+.logic-guide {{ color:#101828; }}
+.logic-intro {{
+  max-width:900px;
+  margin-bottom:14px;
+}}
+.logic-intro p {{
+  margin:0;
+  color:#475467;
+}}
+.logic-tabs {{
+  position:sticky;
+  top:-18px;
+  z-index:2;
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+  margin:0 -20px 16px;
+  padding:10px 20px;
+  border-top:1px solid #f2f4f7;
+  border-bottom:1px solid #eaecf0;
+  background:rgba(255,255,255,.96);
+}}
+.logic-tab {{
+  height:32px;
+  border-color:#d0d5dd;
+  background:#fff;
+  color:#344054;
+  font-size:13px;
+  font-weight:700;
+}}
+.logic-tab.active {{
+  border-color:#175cd3;
+  background:#eff8ff;
+  color:#175cd3;
+}}
+.logic-tab-panel {{ display:none; }}
+.logic-tab-panel.active {{ display:block; }}
+.logic-grid {{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+  margin:12px 0;
+}}
+.logic-card {{
+  border:1px solid #e4e7ec;
+  border-radius:6px;
+  padding:12px;
+  background:#fcfcfd;
+}}
+.logic-card p {{ margin:0 0 8px; }}
+.logic-card p:last-child {{ margin-bottom:0; }}
+.logic-rule-table {{
+  display:grid;
+  gap:8px;
+  margin:12px 0;
+}}
+.logic-rule-table > div {{
+  display:grid;
+  grid-template-columns:110px 1fr;
+  gap:12px;
+  padding:10px 12px;
+  border:1px solid #e4e7ec;
+  border-radius:6px;
+  background:#f9fafb;
+}}
+.logic-rule-table strong {{
+  color:#101828;
+}}
+.logic-rule-table span {{
+  color:#344054;
+}}
+.logic-example {{
+  margin:12px 0;
+  padding:11px 12px;
+  border-left:3px solid #175cd3;
+  border-radius:4px;
+  background:#eff8ff;
+  color:#344054;
+}}
+.logic-dialog-body pre {{
+  margin:8px 0 0;
+  padding:10px;
+  overflow:auto;
+  border:1px solid #e4e7ec;
+  border-radius:6px;
+  background:#101828;
+  color:#e4e7ec;
+  font-size:12px;
+}}
+.logic-dialog-body pre code {{
+  padding:0;
+  background:transparent;
+  color:inherit;
+}}
 @media (max-width:800px) {{
   .topbar {{
     align-items:stretch;
@@ -478,6 +573,8 @@ iframe {{
   .quick-list {{ align-items:flex-start; }}
   .logic-button {{ margin-left:auto; }}
   iframe {{ height:calc(100vh - 190px); }}
+  .logic-grid {{ grid-template-columns:1fr; }}
+  .logic-rule-table > div {{ grid-template-columns:1fr; gap:4px; }}
 }}
 </style>
 </head>
@@ -675,8 +772,29 @@ function getLogicHtmlFromFrame() {{
   }} catch (err) {{}}
   return '<h1>当前分型与笔划分逻辑</h1><p>当前图表还没有完成加载，请稍后再打开。</p>';
 }}
+function initLogicTabs() {{
+  var tabs = logicBody.querySelectorAll('.logic-tab[data-logic-tab]');
+  var panels = logicBody.querySelectorAll('.logic-tab-panel[data-logic-panel]');
+  if (!tabs.length || !panels.length) return;
+  function activate(name) {{
+    tabs.forEach(function(tab) {{
+      tab.classList.toggle('active', tab.getAttribute('data-logic-tab') === name);
+    }});
+    panels.forEach(function(panel) {{
+      panel.classList.toggle('active', panel.getAttribute('data-logic-panel') === name);
+    }});
+  }}
+  tabs.forEach(function(tab) {{
+    tab.addEventListener('click', function() {{
+      activate(tab.getAttribute('data-logic-tab'));
+    }});
+  }});
+  var active = logicBody.querySelector('.logic-tab.active[data-logic-tab]');
+  activate(active ? active.getAttribute('data-logic-tab') : tabs[0].getAttribute('data-logic-tab'));
+}}
 function openLogicModal() {{
   logicBody.innerHTML = getLogicHtmlFromFrame();
+  initLogicTabs();
   logicModal.classList.add('active');
   logicModal.setAttribute('aria-hidden', 'false');
   logicCloseBtn.focus();
