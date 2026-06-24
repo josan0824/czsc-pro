@@ -304,7 +304,7 @@ pre {{ white-space:pre-wrap; word-break:break-word; background:#f8fafc; border:1
 
 def index_html(host: str, port: int) -> str:
     quick_items = json.dumps(QUICK_ITEMS, ensure_ascii=False)
-    default_query = urlencode({"code": DEFAULT_CODE, "lv": "1m", "days": "250", "source": DEFAULT_SOURCE})
+    default_query = urlencode({"code": DEFAULT_CODE, "lv": "1m", "days": "30", "source": DEFAULT_SOURCE})
     chart_url = f"chart?{default_query}"
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -616,9 +616,10 @@ iframe {{
         <select id="days-select" name="days">
           <option value="5">5天</option>
           <option value="20">20天</option>
+          <option value="30" selected>30天</option>
           <option value="60">60天</option>
           <option value="120">120天</option>
-          <option value="250" selected>250天</option>
+          <option value="250">250天</option>
         </select>
         <select id="source-select" name="source">
           <option value="mootdx" selected>通达信</option>
@@ -1008,9 +1009,9 @@ class ChanChartHandler(BaseHTTPRequestHandler):
         lv = (params.get("lv") or ["1m"])[0]
         source = (params.get("source") or [DEFAULT_SOURCE])[0]
         try:
-            days = int((params.get("days") or ["60"])[0])
+            days = int((params.get("days") or ["30"])[0])
         except ValueError:
-            days = 60
+            days = 30
         try:
             html_text, _signature = build_chart_payload(code, lv, days, source)
             self.respond_html(html_text)
@@ -1025,9 +1026,9 @@ class ChanChartHandler(BaseHTTPRequestHandler):
         source = (params.get("source") or [DEFAULT_SOURCE])[0]
         known_sig = (params.get("known_sig") or [""])[0]
         try:
-            days = int((params.get("days") or ["60"])[0])
+            days = int((params.get("days") or ["30"])[0])
         except ValueError:
-            days = 60
+            days = 30
         try:
             html_text, signature = build_chart_payload(code, lv, days, source)
             body = {
