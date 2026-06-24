@@ -400,6 +400,7 @@ window.addEventListener('message', function(event) {{
     <button class="logic-tab" type="button" data-logic-tab="pen">笔构造</button>
     <button class="logic-tab" type="button" data-logic-tab="gap">缺口处理</button>
     <button class="logic-tab" type="button" data-logic-tab="segment">段划分</button>
+    <button class="logic-tab" type="button" data-logic-tab="segment-v2">线段v2.0</button>
     <button class="logic-tab" type="button" data-logic-tab="report">表格口径</button>
   </div>
   <section class="logic-tab-panel active" data-logic-panel="include">
@@ -582,8 +583,77 @@ window.addEventListener('message', function(event) {{
       <strong>例子：</strong>一段上升走势中，后续下降笔构成的特征序列出现顶分型，但该顶分型中间元素与前一元素之间有缺口，此时不会立即确认上升段结束；只有后续走势给出反向确认后，段终点才会落定。
     </div>
   </section>
+  <section class="logic-tab-panel" data-logic-panel="segment-v2">
+    <h2>7. 线段v2.0</h2>
+    <p>本节按 <code>docs/第二讲 笔与线段.pdf</code> 的线段口径展示。线段v2.0 仍然基于已确认笔序列，不直接从原始 K 线或分型生成；它重点补充特征序列、缺口确认、线段破坏和复杂中间状态。</p>
+    <div class="logic-grid">
+      <div class="logic-card">
+        <h3>线段定义</h3>
+        <p>线段至少由三笔构成，相邻两笔方向相反。向上线段从底开始到顶结束；向下线段从顶开始到底结束。</p>
+      </div>
+      <div class="logic-card">
+        <h3>首尾衔接</h3>
+        <p>后一线段的开始位置必须是前一线段的结束位置。线段之间不能断开，也不能绕过中间笔重新起段。</p>
+      </div>
+      <div class="logic-card">
+        <h3>反向笔序列</h3>
+        <p>判断上涨线段是否结束，要看其中的下跌笔组成的特征序列；判断下跌线段是否结束，要看其中的上涨笔组成的特征序列。</p>
+      </div>
+      <div class="logic-card">
+        <h3>线段状态</h3>
+        <p>展示时建议区分已确认线段、未确认线段、缺口待确认、中间状态、疑似破坏、破坏确认和原线段延续。</p>
+      </div>
+    </div>
+    <div class="logic-rule-table">
+      <div><strong>上涨结束</strong><span>取上涨线段中的下跌笔作为特征序列；若该序列形成有效顶分型，才具备结束上涨线段的条件。</span></div>
+      <div><strong>下跌结束</strong><span>取下跌线段中的上涨笔作为特征序列；若该序列形成有效底分型，才具备结束下跌线段的条件。</span></div>
+    </div>
+    <div class="logic-grid">
+      <div class="logic-card">
+        <h3>特征序列包含</h3>
+        <p>特征序列内部也要做包含处理，避免局部重叠造成误判。但第一元素和第二元素之间是否存在缺口，会决定后续确认路径，不能简单忽略。</p>
+      </div>
+      <div class="logic-card">
+        <h3>无缺口确认</h3>
+        <p>若特征序列第一元素和第二元素之间没有缺口，经过包含处理后形成有效分型，则可以确认上一线段结束。</p>
+      </div>
+      <div class="logic-card">
+        <h3>有缺口确认</h3>
+        <p>若第一元素和第二元素之间存在缺口，不能仅凭当前特征序列分型确认线段结束，需要等待后续走势形成反向确认。</p>
+      </div>
+      <div class="logic-card">
+        <h3>二次确认</h3>
+        <p>有缺口时，线段终点先进入待确认状态；只有后续反向分型或补充结构成立，才把上一线段结束点落定。</p>
+      </div>
+    </div>
+    <div class="logic-rule-table">
+      <div><strong>线段破坏</strong><span>线段不能被单独一笔简单破坏，必须由另一条线段破坏。单笔突破关键高低点后，还要看后续是否形成完整反向线段。</span></div>
+      <div><strong>中间状态</strong><span>若某一笔力度很大，后续多笔仍在该笔范围内震荡，既不能确认原线段结束，也不能确认新线段开始，应保持中间状态。</span></div>
+    </div>
+    <div class="logic-grid">
+      <div class="logic-card">
+        <h3>复杂情况一</h3>
+        <p>后一组特征序列因包含关系导致分型不成立时，不强行确认新线段，继续等待有效分型。</p>
+      </div>
+      <div class="logic-card">
+        <h3>复杂情况二</h3>
+        <p>强力一笔破坏原线段后，如果后续仍在该笔范围内震荡，可能只是原线段延续，不立即划出新段。</p>
+      </div>
+      <div class="logic-card">
+        <h3>复杂情况三</h3>
+        <p>后续创新高或新低后，可能才反向确认前一线段结束；确认点以最终有效特征序列为准。</p>
+      </div>
+      <div class="logic-card">
+        <h3>融合口径</h3>
+        <p>当前系统的“段划分”展示实际 <code>seg_algo=chan</code> 输出；线段v2.0 用于展示文档规则口径，两者可并行对照。</p>
+      </div>
+    </div>
+    <div class="logic-example">
+      <strong>核心原则：</strong>先确认笔，再通过反向笔特征序列判断线段结束；无缺口可直接确认，有缺口需要二次确认；线段只能被线段破坏，复杂走势中要允许中间状态。
+    </div>
+  </section>
   <section class="logic-tab-panel" data-logic-panel="report">
-    <h2>7. 表格与图上标注口径</h2>
+    <h2>8. 表格与图上标注口径</h2>
     <p>报告里的图形和表格是为了复核计算过程，不是额外再跑一套规则。图上的三角形、虚线框、笔线和表格行都来自同一份分型与笔数据。</p>
     <div class="logic-grid">
       <div class="logic-card">
