@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import html
 import json
 import re
@@ -248,6 +249,24 @@ def build_chart_html(code: str, lv_key: str, days: int, source: str = DEFAULT_SO
     html_text = html_text.replace(f"<title>{escaped_code} 缠论分型图</title>", f"<title>{escaped_title} 缠论分型图</title>", 1)
     html_text = html_text.replace(f"<h1>{escaped_code} 缠论分型图</h1>", f"<h1>{escaped_title} 缠论分型图</h1>", 1)
     return html_text
+
+
+def sign_chart_html(html_text: str) -> str:
+    return hashlib.sha256(html_text.encode("utf-8")).hexdigest()
+
+
+def attach_chart_signature(html_text: str, signature: str) -> str:
+    marker = "</head>"
+    meta = f'<meta name="chan-chart-signature" content="{html.escape(signature)}">\n'
+    if marker in html_text:
+        return html_text.replace(marker, meta + marker, 1)
+    return html_text
+
+
+def build_chart_payload(code: str, lv_key: str, days: int, source: str = DEFAULT_SOURCE) -> tuple[str, str]:
+    html_text = build_chart_html(code, lv_key, days, source)
+    signature = sign_chart_html(html_text)
+    return attach_chart_signature(html_text, signature), signature
 
 
 def error_html(message: str, detail: str = "") -> str:
@@ -647,6 +666,10 @@ var logicBody = document.getElementById('logic-body');
 var autoRefreshEnabled = false;
 var autoRefreshTimer = null;
 var chartLoading = false;
+var chartUpdating = false;
+var lastChartSignature = null;
+var chartPatchAckTimer = null;
+var lastDataFetchText = '';
 
 function buildUrl(code, cacheBust) {{
   var params = new URLSearchParams();
@@ -656,6 +679,16 @@ function buildUrl(code, cacheBust) {{
   params.set('source', sourceSelect.value);
   if (cacheBust) params.set('_ts', Date.now());
   return 'chart?' + params.toString();
+}}
+function buildFragmentUrl(cacheBust) {{
+  var params = new URLSearchParams();
+  params.set('code', String(codeInput.value || '').trim().toUpperCase());
+  params.set('lv', lvSelect.value);
+  params.set('days', daysSelect.value);
+  params.set('source', sourceSelect.value);
+  if (lastChartSignature) params.set('known_sig', lastChartSignature);
+  if (cacheBust) params.set('_ts', Date.now());
+  return 'chart-fragment?' + params.toString();
 }}
 function currentChartUrl(cacheBust) {{
   var url;
@@ -696,6 +729,86 @@ function loadChart(code) {{
   chartLoading = true;
   frame.src = buildUrl(value, true);
 }}
+function formatFetchTime(value) {{
+  var date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) date = new Date();
+  var pad = function(num) {{ return String(num).padStart(2, '0'); }};
+  return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) +
+    ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
+}}
+function updateFetchTime(value) {{
+  lastDataFetchText = formatFetchTime(value);
+}}
+function chartStatus(prefix) {{
+  var text = prefix + ' ' + codeInput.value + ' · ' + lvSelect.options[lvSelect.selectedIndex].text;
+  if (lastDataFetchText) text += ' · 最新获取：' + lastDataFetchText;
+  return text;
+}}
+function readFrameSignature() {{
+  try {{
+    var meta = frame.contentDocument && frame.contentDocument.querySelector('meta[name="chan-chart-signature"]');
+    return meta ? meta.getAttribute('content') : null;
+  }} catch (err) {{
+    return null;
+  }}
+}}
+function canPatchFrame() {{
+  try {{
+    return Boolean(frame.contentWindow && frame.contentDocument && frame.contentDocument.getElementById('report-page'));
+  }} catch (err) {{
+    return false;
+  }}
+}}
+function patchChartFrame(htmlText, signature) {{
+  if (!canPatchFrame()) return false;
+  if (chartPatchAckTimer) {{
+    clearTimeout(chartPatchAckTimer);
+    chartPatchAckTimer = null;
+  }}
+  frame.contentWindow.postMessage({{
+    type: 'chan-chart-update',
+    html: htmlText,
+    signature: signature,
+    generatedAt: lastDataFetchText
+  }}, window.location.origin);
+  chartPatchAckTimer = setTimeout(function() {{
+    chartPatchAckTimer = null;
+    chartUpdating = false;
+    statusEl.textContent = '局部更新超时，请手动查询';
+  }}, 5000);
+  return true;
+}}
+function refreshChartIncremental() {{
+  if (chartLoading || chartUpdating) return;
+  chartUpdating = true;
+  statusEl.textContent = '增量检查中 ' + codeInput.value + ' ...';
+  fetch(buildFragmentUrl(true), {{cache: 'no-store'}})
+    .then(function(resp) {{
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return resp.json();
+    }})
+    .then(function(data) {{
+      if (!data.changed) {{
+        lastChartSignature = data.signature || lastChartSignature;
+        updateFetchTime(data.generatedAt);
+        chartUpdating = false;
+        statusEl.textContent = chartStatus('暂无新增数据');
+        return;
+      }}
+      if (!patchChartFrame(data.html, data.signature)) {{
+        chartLoading = true;
+        frame.src = currentChartUrl(true);
+        chartUpdating = false;
+        return;
+      }}
+      lastChartSignature = data.signature || lastChartSignature;
+      updateFetchTime(data.generatedAt);
+    }})
+    .catch(function(err) {{
+      chartUpdating = false;
+      statusEl.textContent = '增量刷新失败：' + err.message;
+    }});
+}}
 function getShanghaiTimeParts() {{
   var parts = new Intl.DateTimeFormat('en-GB', {{
     timeZone: 'Asia/Shanghai',
@@ -722,10 +835,9 @@ function autoRefreshTick() {{
     statusEl.textContent = '自动刷新已开启 · 非开市时间';
     return;
   }}
-  if (chartLoading) return;
-  chartLoading = true;
+  if (chartLoading || chartUpdating) return;
   statusEl.textContent = '自动刷新中 ' + codeInput.value + ' ...';
-  frame.src = currentChartUrl(true);
+  refreshChartIncremental();
 }}
 function setAutoRefresh(enabled) {{
   autoRefreshEnabled = enabled;
@@ -737,7 +849,7 @@ function setAutoRefresh(enabled) {{
     autoRefreshTimer = null;
   }}
   if (enabled) {{
-    statusEl.textContent = isMarketOpen() ? '自动刷新已开启 · 每10秒刷新' : '自动刷新已开启 · 非开市时间';
+    statusEl.textContent = isMarketOpen() ? '自动刷新已开启 · 每10秒增量刷新' : '自动刷新已开启 · 非开市时间';
     autoRefreshTimer = setInterval(autoRefreshTick, 10000);
   }} else {{
     statusEl.textContent = '自动刷新已关闭';
@@ -820,8 +932,28 @@ form.addEventListener('submit', function(e) {{
 }});
 frame.addEventListener('load', function() {{
   chartLoading = false;
+  chartUpdating = false;
+  if (chartPatchAckTimer) {{
+    clearTimeout(chartPatchAckTimer);
+    chartPatchAckTimer = null;
+  }}
+  lastChartSignature = readFrameSignature() || lastChartSignature;
+  updateFetchTime();
   syncControlsFromFrame();
-  statusEl.textContent = '已加载 ' + codeInput.value + ' · ' + lvSelect.options[lvSelect.selectedIndex].text;
+  statusEl.textContent = chartStatus('已加载');
+}});
+window.addEventListener('message', function(event) {{
+  var data = event.data || {{}};
+  if (data.type === 'chan-chart-updated') {{
+    chartLoading = false;
+    chartUpdating = false;
+    if (chartPatchAckTimer) {{
+      clearTimeout(chartPatchAckTimer);
+      chartPatchAckTimer = null;
+    }}
+    lastChartSignature = data.signature || lastChartSignature;
+    statusEl.textContent = chartStatus('已增量更新');
+  }}
 }});
 autoRefreshBtn.addEventListener('click', function() {{
   setAutoRefresh(!autoRefreshEnabled);
@@ -861,6 +993,9 @@ class ChanChartHandler(BaseHTTPRequestHandler):
         if path == "/chart":
             self.handle_chart(parsed.query)
             return
+        if path == "/chart-fragment":
+            self.handle_chart_fragment(parsed.query)
+            return
         if path == "/healthz":
             self.respond_json({"ok": True})
             return
@@ -876,10 +1011,38 @@ class ChanChartHandler(BaseHTTPRequestHandler):
         except ValueError:
             days = 60
         try:
-            self.respond_html(build_chart_html(code, lv, days, source))
+            html_text, _signature = build_chart_payload(code, lv, days, source)
+            self.respond_html(html_text)
         except Exception as err:
             detail = traceback.format_exc()
             self.respond_html(error_html(str(err), detail), status=HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def handle_chart_fragment(self, query: str):
+        params = parse_qs(query)
+        code = (params.get("code") or [DEFAULT_CODE])[0]
+        lv = (params.get("lv") or ["1m"])[0]
+        source = (params.get("source") or [DEFAULT_SOURCE])[0]
+        known_sig = (params.get("known_sig") or [""])[0]
+        try:
+            days = int((params.get("days") or ["60"])[0])
+        except ValueError:
+            days = 60
+        try:
+            html_text, signature = build_chart_payload(code, lv, days, source)
+            body = {
+                "changed": signature != known_sig,
+                "signature": signature,
+                "generatedAt": datetime.now().isoformat(timespec="seconds"),
+            }
+            if body["changed"]:
+                body["html"] = html_text
+            self.respond_json(body)
+        except Exception as err:
+            detail = traceback.format_exc()
+            self.respond_json(
+                {"changed": False, "error": str(err), "detail": detail},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
 
     def respond_html(self, body: str, status: HTTPStatus = HTTPStatus.OK):
         data = body.encode("utf-8")
