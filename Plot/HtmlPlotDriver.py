@@ -143,6 +143,9 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
   border:1px solid #263244; border-radius:6px; background:#111827; touch-action:none;
 }}
 .chan-chart-svg {{ width:100%; height:100%; display:block; background:#111827; cursor:grab; }}
+.chan-chart-svg line,.chan-chart-svg rect,.chan-chart-svg polygon,.chan-chart-svg text {{
+  pointer-events:none;
+}}
 .chan-chart-svg text {{
   paint-order:stroke; stroke:#111827; stroke-width:3px; stroke-linejoin:round;
 }}
@@ -153,9 +156,22 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
 .ma-layer.active {{ display:inline; }}
 .fractal-detail-layer {{ display:none; }}
 .fractal-detail-layer.active {{ display:inline; }}
-.chart-price-label {{ cursor:pointer; opacity:.82; pointer-events:all; }}
+.chart-wrap.is-panning .fractal-detail-layer,
+.chart-wrap.is-panning .chart-price-label,
+.chart-wrap.is-panning .chart-note-label,
+.chart-wrap.is-panning .chart-bsp-label,
+.chart-wrap.is-zooming .fractal-detail-layer,
+.chart-wrap.is-zooming .chart-price-label,
+.chart-wrap.is-zooming .chart-note-label,
+.chart-wrap.is-zooming .chart-bsp-label,
+.chart-wrap.is-zooming .fractal-range-box,
+.chart-wrap.is-zooming .fractal-ref-box {{ display:none; }}
+.chan-chart-svg .chart-price-label {{ cursor:pointer; opacity:.82; pointer-events:all; }}
 .crosshair-price-text {{ stroke-width:1px; }}
 .chart-bsp-label {{ vector-effect:non-scaling-stroke; }}
+.chan-chart-svg .chart-pen-line,
+.chan-chart-svg .chart-pen-hit,
+.chan-chart-svg .chart-fractal-marker {{ pointer-events:all; }}
 .chart-pen-line {{ cursor:pointer; }}
 .fractal-range-box {{ pointer-events:none; }}
 .fractal-ref-box {{ pointer-events:none; }}
@@ -483,10 +499,10 @@ window.addEventListener('message', function(event) {{
     </div>
     <div class="logic-rule-table">
       <div><strong>gap_as_kl=False</strong><span>端点跨度只按合并 K 索引差计算：<code>span = end_idx - begin_idx</code>。即使中间有缺口，也不会降低成笔所需的实际合并 K 数量。</span></div>
-      <div><strong>gap_as_kl=True</strong><span>当端点跨度不足时，只检查候选区间内是否存在有效破格缺口。向上笔要求向上跳空的缺口上沿严格高于前一笔起点顶；向下笔要求向下跳空的缺口下沿严格低于前一笔起点底。</span></div>
+      <div><strong>gap_as_kl=True</strong><span>检查候选区间内是否存在有效破格缺口。向上笔要求向上跳空的缺口上沿严格高于前一笔起点顶；向下笔要求向下跳空的缺口下沿严格低于前一笔起点底。</span></div>
     </div>
     <div class="logic-example">
-      <strong>笔的例子：</strong>严格模式下成笔要求跨度至少为 4。若两个端点合并 K 索引差不足，当前 <code>gap_as_kl=True</code> 时不会把每个缺口都补成一根 K；只有第一个满足反向突破前一笔起点极值的缺口，才允许候选笔跳过跨度和 <code>bi_fx_check</code> 区间重叠限制。
+      <strong>笔的例子：</strong>严格模式下成笔要求跨度至少为 4。当前 <code>gap_as_kl=True</code> 时不会把每个缺口都补成一根 K；只有第一个满足反向突破前一笔起点极值的缺口，才允许候选笔跳过跨度和 <code>bi_fx_check</code> 区间重叠限制。
     </div>
     <div class="logic-grid">
       <div class="logic-card">
@@ -496,6 +512,10 @@ window.addEventListener('message', function(event) {{
       <div class="logic-card">
         <h3>缺口与成笔验证</h3>
         <p>缺口破格会影响 <code>satisfy_bi_span</code> 和 <code>bi_fx_check</code>。有效反向跳空突破前一笔起点极值后，即使端点分型三 K 区间重叠或共用 K，也允许成笔；但仍必须通过顶底交替、同类极值替换和 <code>bi_end_is_peak</code> 等端点极值条件。</p>
+      </div>
+      <div class="logic-card">
+        <h3>缺口后的反向分型</h3>
+        <p>缺口破格笔成立后，缺口区间不作为后续反向分型的禁区。紧接着从缺口笔终点发起的反向候选笔，如果跨度和端点极值满足要求，即使三 K 区间与前一缺口区间重合，也允许跳过 <code>bi_fx_check</code>；该豁免只作用于缺口笔之后的第一条反向候选，不会连续借用同一个缺口生成多笔。</p>
       </div>
       <div class="logic-card">
         <h3>缺口与线段</h3>
@@ -511,7 +531,7 @@ window.addEventListener('message', function(event) {{
     </div>
     <div class="logic-rule-table">
       <div><strong>缺口与中枢</strong><span>中枢没有单独的缺口规则。中枢创建、延伸、合并仍按笔或线段区间是否重叠判断。缺口只会通过笔/线段的高低区间间接影响是否能形成重叠。</span></div>
-      <div><strong>边界规则</strong><span>等于前一笔起点极值不算突破；连续多个缺口不累计、不拆成多笔；缺口是否回补不影响已经命中的候选成笔检查。</span></div>
+      <div><strong>边界规则</strong><span>等于前一笔起点极值不算突破；连续多个缺口不累计、不拆成多笔；缺口是否回补不取消已经成立的缺口笔；后续反向分型按上一笔终点重新判定，缺口区间不作为禁区。</span></div>
     </div>
   </section>
   <section class="logic-tab-panel" data-logic-panel="report">
@@ -562,6 +582,16 @@ window.addEventListener('message', function(event) {{
                         f'突破价 {_fmt_num(bi.gap_break["gap_value"])} '
                         f'{cmp_symbol} 前一笔起点极值 {_fmt_num(bi.gap_break["threshold"])}；'
                         f'豁免最小跨度与分型区间重叠限制，端点极值等其他校验仍需通过。'
+                    )
+                })
+            if getattr(bi, "gap_retrace", None):
+                previous_gap = bi.gap_retrace["previous_gap"]
+                gap_direction = "向上跳空" if previous_gap["direction"] == "up" else "向下跳空"
+                notes.append({
+                    "html": (
+                        f'缺口后反向成笔：上一笔为{gap_direction}破格笔，当前笔从该缺口笔终点发起；'
+                        f'缺口区间不作为后续反向分型禁区，因此当前笔豁免 <code>bi_fx_check</code> '
+                        f'三K区间重合限制，但跨度和端点极值仍需通过。'
                     )
                 })
             if not bi.is_sure:
@@ -1195,9 +1225,9 @@ window.addEventListener('message', function(event) {{
     <button id="reset-{chart_id}" title="重置视图" type="button">重置</button>
     <button id="clear-{chart_id}" title="清理分型标记" type="button">清理</button>
     <button id="ma-toggle-{chart_id}" class="ma-toggle" title="显示/隐藏均线" type="button" aria-pressed="false">均线</button>
-    <span class="chart-help">滚轮缩放 · 拖拽平移 · 双击十字星 · 悬停查看 OHLC</span>
+    <span class="chart-help">滚轮/↑↓缩放 · 拖拽平移 · 双击十字星 · 悬停查看 OHLC</span>
   </div>
-  <div id="wrap-{chart_id}" class="chart-wrap">
+  <div id="wrap-{chart_id}" class="chart-wrap" tabindex="0" aria-label="{html.escape(label)} K线图">
     {"".join(svg)}
     <div id="tooltip-{chart_id}" class="tooltip"></div>
   </div>
@@ -1256,6 +1286,9 @@ var maxViewW = Math.max(totalWidth, minViewW);
 var crosshairEnabled = false;
 var crosshairPoint = null;
 var isPanning = false, panStartX = 0, panStartY = 0, panOriginX = 0, panOriginY = 0;
+var panFrame = null, pendingPanOriginX = originX, pendingPanOriginY = originY;
+var zoomFrame = null, zoomEndTimer = null, pendingZoomFactor = 1, pendingZoomRx = 0.5, pendingZoomRy = 0.5;
+var hoverFrame = null, pendingHoverEvent = null, lastTipIdx = -1;
 window.__chanChartViews = window.__chanChartViews || {{}};
 
 function rect() {{
@@ -1289,14 +1322,22 @@ function autoFitY() {{
   viewH = Math.max(96, Math.min(chartH, visibleH + pad * 2));
   originY = Math.max(0, Math.min(chartH - viewH, yTop - pad));
 }}
-function updateViewBox() {{
+function applyViewBox(light) {{
   viewW = Math.max(minViewW, Math.min(maxViewW, viewW));
   originX = Math.max(0, Math.min(Math.max(0, totalWidth - viewW), originX));
   autoFitY();
   svg.setAttribute('viewBox', originX.toFixed(1) + ' ' + originY.toFixed(1) + ' ' + viewW.toFixed(1) + ' ' + viewH.toFixed(1));
-  updateZoomLabel();
-  updateCrosshair();
+  if (!light) {{
+    updateZoomLabel();
+    updateCrosshair();
+  }}
   rememberView();
+}}
+function updateViewBox() {{
+  applyViewBox(false);
+}}
+function updateViewBoxFast() {{
+  applyViewBox(true);
 }}
 function currentViewState() {{
   var pinnedRight = Math.abs((originX + viewW) - totalWidth) <= barW * 2;
@@ -1418,27 +1459,90 @@ function zoomAt(factor, rx, ry) {{
   originY += ry * (oldH - viewH);
   updateViewBox();
 }}
+function zoomAtFast(factor, rx, ry) {{
+  var oldW = viewW, oldH = viewH;
+  viewW = Math.max(minViewW, Math.min(maxViewW, viewW * factor));
+  originX += rx * (oldW - viewW);
+  originY += ry * (oldH - viewH);
+  updateViewBoxFast();
+}}
+function focusChart() {{
+  if (document.activeElement !== wrap) wrap.focus({{preventScroll:true}});
+}}
 function nearestBar(clientX) {{
   var r = rect();
-  var mx = clientX - r.left;
-  var best = -1, bestDist = Infinity;
-  for (var i = 0; i < data.bars.length; i++) {{
-    var px = (data.bars[i].x - originX) / viewW * r.width;
-    var d = Math.abs(mx - px);
-    if (d < bestDist) {{ best = i; bestDist = d; }}
+  if (!data.bars.length || !r.width) return -1;
+  var x = (clientX - r.left) / r.width * viewW + originX;
+  var firstX = data.bars[0].x;
+  var idx = Math.round((x - firstX) / barW);
+  if (idx < 0 || idx >= data.bars.length) return -1;
+  return Math.abs(data.bars[idx].x - x) <= barW * 1.5 ? idx : -1;
+}}
+function schedulePanFrame() {{
+  if (panFrame !== null) return;
+  panFrame = window.requestAnimationFrame(function() {{
+    panFrame = null;
+    originX = pendingPanOriginX;
+    originY = pendingPanOriginY;
+    updateViewBoxFast();
+  }});
+}}
+function finishPan() {{
+  if (!isPanning) return;
+  isPanning = false;
+  wrap.classList.remove('is-panning');
+  if (panFrame !== null) {{
+    window.cancelAnimationFrame(panFrame);
+    panFrame = null;
+    originX = pendingPanOriginX;
+    originY = pendingPanOriginY;
   }}
-  var one = barW / viewW * r.width;
-  return bestDist <= one * 1.5 ? best : -1;
+  updateViewBox();
+}}
+function scheduleWheelZoom(factor, rx, ry) {{
+  pendingZoomFactor *= factor;
+  pendingZoomRx = rx;
+  pendingZoomRy = ry;
+  wrap.classList.add('is-zooming');
+  hideTip();
+  if (zoomFrame === null) {{
+    zoomFrame = window.requestAnimationFrame(function() {{
+      var factorToApply = pendingZoomFactor;
+      var rxToApply = pendingZoomRx;
+      var ryToApply = pendingZoomRy;
+      zoomFrame = null;
+      pendingZoomFactor = 1;
+      zoomAtFast(factorToApply, rxToApply, ryToApply);
+    }});
+  }}
+  if (zoomEndTimer !== null) window.clearTimeout(zoomEndTimer);
+  zoomEndTimer = window.setTimeout(function() {{
+    zoomEndTimer = null;
+    if (zoomFrame !== null) {{
+      window.cancelAnimationFrame(zoomFrame);
+      zoomFrame = null;
+      var factorToApply = pendingZoomFactor;
+      var rxToApply = pendingZoomRx;
+      var ryToApply = pendingZoomRy;
+      pendingZoomFactor = 1;
+      zoomAtFast(factorToApply, rxToApply, ryToApply);
+    }}
+    wrap.classList.remove('is-zooming');
+    updateViewBox();
+  }}, 90);
 }}
 function showTip(idx, clientX, clientY) {{
   if (idx < 0 || idx >= data.bars.length) {{ tip.style.display = 'none'; return; }}
   var b = data.bars[idx];
-  selected.setAttribute('x1', b.x.toFixed(1));
-  selected.setAttribute('x2', b.x.toFixed(1));
-  selected.style.display = 'block';
-  tip.innerHTML = '<div><b>' + b.dt + '</b></div>' +
-    '<div>开盘: ' + b.o.toFixed(2) + ' | 最高: ' + b.h.toFixed(2) + '</div>' +
-    '<div>收盘: ' + b.c.toFixed(2) + ' | 最低: ' + b.l.toFixed(2) + '</div>';
+  if (idx !== lastTipIdx) {{
+    selected.setAttribute('x1', b.x.toFixed(1));
+    selected.setAttribute('x2', b.x.toFixed(1));
+    selected.style.display = 'block';
+    tip.innerHTML = '<div><b>' + b.dt + '</b></div>' +
+      '<div>开盘: ' + b.o.toFixed(2) + ' | 最高: ' + b.h.toFixed(2) + '</div>' +
+      '<div>收盘: ' + b.c.toFixed(2) + ' | 最低: ' + b.l.toFixed(2) + '</div>';
+    lastTipIdx = idx;
+  }}
   tip.style.display = 'block';
   var wr = wrap.getBoundingClientRect();
   var x = clientX - wr.left + 12;
@@ -1449,6 +1553,28 @@ function showTip(idx, clientX, clientY) {{
   if (y + 78 > wr.height) y = wr.height - 82;
   tip.style.left = x + 'px';
   tip.style.top = y + 'px';
+}}
+function hideTip() {{
+  lastTipIdx = -1;
+  tip.style.display = 'none';
+}}
+function handleHover(e) {{
+  if (!e) return;
+  var p = svgPoint(e);
+  if (crosshairEnabled) {{ crosshairPoint = p; updateCrosshair(); }}
+  var idx = nearestBar(e.clientX);
+  if (idx >= 0 && p.y >= top && p.y <= chartH - bottom) showTip(idx, e.clientX, e.clientY);
+  else hideTip();
+}}
+function scheduleHover(e) {{
+  pendingHoverEvent = e;
+  if (hoverFrame !== null) return;
+  hoverFrame = window.requestAnimationFrame(function() {{
+    var eventToHandle = pendingHoverEvent;
+    hoverFrame = null;
+    pendingHoverEvent = null;
+    handleHover(eventToHandle);
+  }});
 }}
 function focusBar(idx, shouldScroll) {{
   idx = Math.max(0, Math.min(data.bars.length - 1, Number(idx) || 0));
@@ -1579,34 +1705,53 @@ function handleFractalPick(rowId) {{
 
 wrap.addEventListener('wheel', function(e) {{
   e.preventDefault();
+  focusChart();
   var r = rect();
-  zoomAt(e.deltaY < 0 ? 0.70 : 1.43, Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)));
+  scheduleWheelZoom(
+    e.deltaY < 0 ? 0.70 : 1.43,
+    Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)),
+    Math.max(0, Math.min(1, (e.clientY - r.top) / r.height))
+  );
 }}, {{passive:false}});
 wrap.addEventListener('mousedown', function(e) {{
   if (e.button !== 0) return;
+  if (e.target && e.target.closest && e.target.closest('.chart-price-label,.chart-fractal-marker,.chart-pen-line,.chart-pen-hit')) return;
+  focusChart();
   isPanning = true; panStartX = e.clientX; panStartY = e.clientY; panOriginX = originX; panOriginY = originY;
+  pendingPanOriginX = originX; pendingPanOriginY = originY;
+  wrap.classList.add('is-panning');
+  hideTip();
   svg.style.cursor = 'grabbing';
 }});
 window.addEventListener('mousemove', function(e) {{
   if (isPanning) {{
     var r = rect();
-    originX = panOriginX + (panStartX - e.clientX) / r.width * viewW;
-    originY = panOriginY + (panStartY - e.clientY) / r.height * viewH;
-    updateViewBox();
+    pendingPanOriginX = panOriginX + (panStartX - e.clientX) / r.width * viewW;
+    pendingPanOriginY = panOriginY + (panStartY - e.clientY) / r.height * viewH;
+    schedulePanFrame();
     return;
   }}
-  var p = svgPoint(e);
-  if (crosshairEnabled) {{ crosshairPoint = p; updateCrosshair(); }}
-  var idx = nearestBar(e.clientX);
-  if (idx >= 0 && p.y >= top && p.y <= chartH - bottom) showTip(idx, e.clientX, e.clientY);
-  else tip.style.display = 'none';
+  scheduleHover(e);
 }}, {{signal:eventSignal}});
 window.addEventListener('mouseup', function() {{
-  isPanning = false; svg.style.cursor = 'grab';
+  finishPan();
+  svg.style.cursor = 'grab';
 }}, {{signal:eventSignal}});
-wrap.addEventListener('mouseleave', function() {{ tip.style.display = 'none'; }});
+wrap.addEventListener('mouseleave', function() {{
+  pendingHoverEvent = null;
+  if (hoverFrame !== null) {{ window.cancelAnimationFrame(hoverFrame); hoverFrame = null; }}
+  hideTip();
+  finishPan();
+}});
+wrap.addEventListener('keydown', function(e) {{
+  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+  e.preventDefault();
+  hideTip();
+  zoomAt(e.key === 'ArrowUp' ? 0.70 : 1.43, 0.5, 0.5);
+}});
 wrap.addEventListener('dblclick', function(e) {{
   e.preventDefault();
+  focusChart();
   if (crosshairEnabled) {{
     crosshairEnabled = false; crosshairPoint = null; crosshair.style.display = 'none';
   }} else {{
@@ -1615,7 +1760,7 @@ wrap.addEventListener('dblclick', function(e) {{
 }});
 document.getElementById('zoom-in-{chart_id}').addEventListener('click', function() {{ zoomAt(0.5, 0.5, 0.5); }});
 document.getElementById('zoom-out-{chart_id}').addEventListener('click', function() {{ zoomAt(2, 0.5, 0.5); }});
-document.getElementById('reset-{chart_id}').addEventListener('click', function() {{ tip.style.display = 'none'; resetView(); }});
+document.getElementById('reset-{chart_id}').addEventListener('click', function() {{ hideTip(); resetView(); }});
 document.getElementById('clear-{chart_id}').addEventListener('click', function() {{
   if (fractalRangeLayer) fractalRangeLayer.replaceChildren();
   if (fractalRefLayer) fractalRefLayer.replaceChildren();
@@ -1629,6 +1774,9 @@ maToggle.addEventListener('click', function() {{
   maToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
 }});
 panelRoot.querySelectorAll('[data-fx-row].chart-price-label,[data-fx-row].chart-fractal-marker').forEach(function(node) {{
+  node.addEventListener('mousedown', function(e) {{
+    e.stopPropagation();
+  }});
   node.addEventListener('click', function(e) {{
     e.stopPropagation();
     handleFractalPick(node.getAttribute('data-fx-row'));
@@ -1642,6 +1790,9 @@ panelRoot.querySelectorAll('.fx-note-ref[data-fx-ref]').forEach(function(btn) {{
   }});
 }});
 panelRoot.querySelectorAll('.chart-pen-line[data-pen-row],.chart-pen-hit[data-pen-row]').forEach(function(line) {{
+  line.addEventListener('mousedown', function(e) {{
+    e.stopPropagation();
+  }});
   line.addEventListener('click', function(e) {{
     e.stopPropagation();
     highlightPenRow(line.getAttribute('data-pen-row'));
