@@ -105,7 +105,7 @@ def main():
         #"002475.SZ",
     ]
 
-    begin_time = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
+    begin_time = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
     end_time = None
     data_src = DATA_SRC.MOOTDX
     lv_list = [KL_TYPE.K_1M]

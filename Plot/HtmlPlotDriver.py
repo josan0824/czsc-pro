@@ -294,6 +294,7 @@ function setSignature(signature) {{
   meta.setAttribute('content', signature);
 }}
 function applyChartHtml(htmlText, signature) {{
+  var viewState = window.__chanCaptureViews ? window.__chanCaptureViews() : null;
   var parser = new DOMParser();
   var nextDoc = parser.parseFromString(htmlText, 'text/html');
   var nextMain = nextDoc.getElementById('report-page');
@@ -311,6 +312,7 @@ function applyChartHtml(htmlText, signature) {{
   currentMain.replaceWith(nextMain);
   bindTimeframeTabs(nextMain);
   runScripts(nextMain);
+  if (viewState && window.__chanRestoreViews) window.__chanRestoreViews(viewState);
   return true;
 }}
 bindTimeframeTabs(document);
@@ -1254,6 +1256,7 @@ var maxViewW = Math.max(totalWidth, minViewW);
 var crosshairEnabled = false;
 var crosshairPoint = null;
 var isPanning = false, panStartX = 0, panStartY = 0, panOriginX = 0, panOriginY = 0;
+window.__chanChartViews = window.__chanChartViews || {{}};
 
 function rect() {{
   var r = svg.getBoundingClientRect();
@@ -1293,7 +1296,54 @@ function updateViewBox() {{
   svg.setAttribute('viewBox', originX.toFixed(1) + ' ' + originY.toFixed(1) + ' ' + viewW.toFixed(1) + ' ' + viewH.toFixed(1));
   updateZoomLabel();
   updateCrosshair();
+  rememberView();
 }}
+function currentViewState() {{
+  var pinnedRight = Math.abs((originX + viewW) - totalWidth) <= barW * 2;
+  return {{
+    originX: originX,
+    viewW: viewW,
+    pinnedRight: pinnedRight,
+    totalWidth: totalWidth,
+    barW: barW
+  }};
+}}
+function rememberView() {{
+  window.__chanChartViews['{chart_id}'] = currentViewState();
+}}
+function restoreView(state) {{
+  if (!state) return false;
+  viewW = Number(state.viewW) || viewW;
+  if (state.pinnedRight) {{
+    originX = Math.max(0, totalWidth - viewW);
+  }} else {{
+    var oldTotalWidth = Number(state.totalWidth) || totalWidth;
+    var delta = totalWidth - oldTotalWidth;
+    originX = (Number(state.originX) || originX) + delta;
+  }}
+  updateViewBox();
+  return true;
+}}
+window.__chanViewControllers = window.__chanViewControllers || {{}};
+window.__chanViewControllers['{chart_id}'] = {{
+  capture: currentViewState,
+  restore: restoreView
+}};
+window.__chanCaptureViews = function() {{
+  var views = {{}};
+  Object.keys(window.__chanViewControllers || {{}}).forEach(function(id) {{
+    try {{ views[id] = window.__chanViewControllers[id].capture(); }} catch (err) {{}}
+  }});
+  return views;
+}};
+window.__chanRestoreViews = function(views) {{
+  Object.keys(views || {{}}).forEach(function(id) {{
+    var controller = window.__chanViewControllers && window.__chanViewControllers[id];
+    if (controller && controller.restore) {{
+      try {{ controller.restore(views[id]); }} catch (err) {{}}
+    }}
+  }});
+}};
 function resetView() {{
   var r = rect();
   var targetBars = Math.min(data.totalBars, Math.max(120, Math.round(r.width / 7.8)));
@@ -1633,6 +1683,7 @@ document.getElementById('goto-{chart_id}').addEventListener('keydown', function(
 }});
 window.addEventListener('resize', updateZoomLabel, {{signal:eventSignal}});
 resetView();
+rememberView();
 }})();
 </script>
 """
