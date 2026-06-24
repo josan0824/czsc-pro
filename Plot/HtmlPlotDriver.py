@@ -260,16 +260,72 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
   </section>
 </main>
 <script>
-document.querySelectorAll('.tf-tab').forEach(function(tab) {{
-  tab.addEventListener('click', function() {{
-    if (tab.tagName === 'A') return;
-    document.querySelectorAll('.tf-tab').forEach(function(x) {{ x.classList.remove('active'); }});
-    document.querySelectorAll('.tf-panel').forEach(function(x) {{ x.classList.remove('active'); }});
-    tab.classList.add('active');
-    var panel = document.getElementById(tab.getAttribute('data-target'));
-    if (panel) panel.classList.add('active');
+(function() {{
+function runScripts(scope) {{
+  Array.prototype.slice.call(scope.querySelectorAll('script')).forEach(function(oldScript) {{
+    var newScript = document.createElement('script');
+    Array.prototype.slice.call(oldScript.attributes).forEach(function(attr) {{
+      newScript.setAttribute(attr.name, attr.value);
+    }});
+    newScript.text = oldScript.textContent;
+    oldScript.parentNode.replaceChild(newScript, oldScript);
   }});
+}}
+function bindTimeframeTabs(root) {{
+  root.querySelectorAll('.tf-tab').forEach(function(tab) {{
+    tab.addEventListener('click', function() {{
+      if (tab.tagName === 'A') return;
+      root.querySelectorAll('.tf-tab').forEach(function(x) {{ x.classList.remove('active'); }});
+      root.querySelectorAll('.tf-panel').forEach(function(x) {{ x.classList.remove('active'); }});
+      tab.classList.add('active');
+      var panel = root.querySelector('#' + CSS.escape(tab.getAttribute('data-target')));
+      if (panel) panel.classList.add('active');
+    }});
+  }});
+}}
+function setSignature(signature) {{
+  if (!signature) return;
+  var meta = document.querySelector('meta[name="chan-chart-signature"]');
+  if (!meta) {{
+    meta = document.createElement('meta');
+    meta.setAttribute('name', 'chan-chart-signature');
+    document.head.appendChild(meta);
+  }}
+  meta.setAttribute('content', signature);
+}}
+function applyChartHtml(htmlText, signature) {{
+  var parser = new DOMParser();
+  var nextDoc = parser.parseFromString(htmlText, 'text/html');
+  var nextMain = nextDoc.getElementById('report-page');
+  var currentMain = document.getElementById('report-page');
+  if (!nextMain || !currentMain) return false;
+  var nextTitle = nextDoc.querySelector('title');
+  if (nextTitle) document.title = nextTitle.textContent;
+  setSignature(signature);
+  if (window.__chanChartAbortControllers) {{
+    window.__chanChartAbortControllers.forEach(function(controller) {{
+      try {{ controller.abort(); }} catch (err) {{}}
+    }});
+    window.__chanChartAbortControllers = [];
+  }}
+  currentMain.replaceWith(nextMain);
+  bindTimeframeTabs(nextMain);
+  runScripts(nextMain);
+  return true;
+}}
+bindTimeframeTabs(document);
+window.addEventListener('message', function(event) {{
+  if (event.origin !== window.location.origin) return;
+  var data = event.data || {{}};
+  if (data.type !== 'chan-chart-update' || !data.html) return;
+  if (applyChartHtml(data.html, data.signature)) {{
+    window.parent.postMessage({{
+      type: 'chan-chart-updated',
+      signature: data.signature || ''
+    }}, window.location.origin);
+  }}
 }});
+}})();
 </script>
 </body>
 </html>
@@ -1145,6 +1201,10 @@ document.querySelectorAll('.tf-tab').forEach(function(tab) {{
 {pen_table}
 <script>
 (function() {{
+var eventController = new AbortController();
+window.__chanChartAbortControllers = window.__chanChartAbortControllers || [];
+window.__chanChartAbortControllers.push(eventController);
+var eventSignal = eventController.signal;
 var data = {{
   bars:{_json(bar_data)},
   fractals:{_json(fractals)},
@@ -1478,10 +1538,10 @@ window.addEventListener('mousemove', function(e) {{
   var idx = nearestBar(e.clientX);
   if (idx >= 0 && p.y >= top && p.y <= chartH - bottom) showTip(idx, e.clientX, e.clientY);
   else tip.style.display = 'none';
-}});
+}}, {{signal:eventSignal}});
 window.addEventListener('mouseup', function() {{
   isPanning = false; svg.style.cursor = 'grab';
-}});
+}}, {{signal:eventSignal}});
 wrap.addEventListener('mouseleave', function() {{ tip.style.display = 'none'; }});
 wrap.addEventListener('dblclick', function(e) {{
   e.preventDefault();
@@ -1559,7 +1619,7 @@ document.getElementById('goto-btn-{chart_id}').addEventListener('click', functio
 document.getElementById('goto-{chart_id}').addEventListener('keydown', function(e) {{
   if (e.key === 'Enter') document.getElementById('goto-btn-{chart_id}').click();
 }});
-window.addEventListener('resize', updateZoomLabel);
+window.addEventListener('resize', updateZoomLabel, {{signal:eventSignal}});
 resetView();
 }})();
 </script>
