@@ -187,6 +187,48 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
 .legend {{ display:flex; gap:14px; flex-wrap:wrap; color:#98a2b3; font-size:12px; margin-top:8px; }}
 .swatch {{ display:inline-block; width:10px; height:10px; margin-right:5px; vertical-align:-1px; }}
 .logic-source {{ display:none; }}
+.logic-table-wrap {{
+  overflow:auto;
+  border:1px solid #d0d5dd;
+  border-radius:6px;
+  margin:12px 0 16px;
+  background:#fff;
+}}
+.logic-compare-table {{
+  width:100%;
+  min-width:1120px;
+  border-collapse:collapse;
+  font-size:13px;
+  line-height:1.55;
+}}
+.logic-compare-table th {{
+  position:sticky;
+  top:0;
+  z-index:1;
+  background:#eef2f6;
+  color:#101828;
+  text-align:left;
+  border-bottom:1px solid #d0d5dd;
+  padding:8px 10px;
+  white-space:nowrap;
+}}
+.logic-compare-table td {{
+  border-bottom:1px solid #e4e7ec;
+  padding:9px 10px;
+  vertical-align:top;
+  color:#344054;
+}}
+.logic-compare-table td:first-child {{
+  width:88px;
+  color:#101828;
+  font-weight:700;
+  white-space:nowrap;
+}}
+.logic-compare-table code {{
+  background:#f2f4f7;
+  padding:1px 4px;
+  border-radius:3px;
+}}
 .report-section {{
   margin-top:14px; background:var(--panel); border:1px solid var(--line); border-radius:6px;
   padding:14px; overflow:hidden;
@@ -538,7 +580,7 @@ window.addEventListener('message', function(event) {{
   </section>
   <section class="logic-tab-panel" data-logic-panel="segment">
     <h2>6. 段划分逻辑</h2>
-    <p>段是在已经生成的笔列表上继续划分出来的更高一级结构。当前页面默认使用 <code>seg_algo=chan</code>，也就是按缠论特征序列逻辑处理，而不是直接按 K 线或分型重新计算。</p>
+    <p>段是在已经生成的笔列表上继续划分出来的更高一级结构。页面上方可以切换 <code>seg_algo</code>；默认 <code>chan</code> 使用当前稳定的特征序列逻辑，<code>chan_v2</code> 会按线段v2.0口径保留第一、第二特征元素的缺口关系，因此画出的线段可能不同。</p>
     <div class="logic-grid">
       <div class="logic-card">
         <h3>输入对象</h3>
@@ -645,7 +687,7 @@ window.addEventListener('message', function(event) {{
       </div>
       <div class="logic-card">
         <h3>融合口径</h3>
-        <p>当前系统的“段划分”展示实际 <code>seg_algo=chan</code> 输出；线段v2.0 用于展示文档规则口径，两者可并行对照。</p>
+        <p>当前系统的“段划分”展示当前页面所选 <code>seg_algo</code> 的实际输出；线段v2.0 既是文档规则口径，也可通过页面上方选择 <code>chan_v2</code> 参与实盘重算。</p>
       </div>
     </div>
     <div class="logic-example">
@@ -655,6 +697,56 @@ window.addEventListener('message', function(event) {{
   <section class="logic-tab-panel" data-logic-panel="report">
     <h2>8. 表格与图上标注口径</h2>
     <p>报告里的图形和表格是为了复核计算过程，不是额外再跑一套规则。图上的三角形、虚线框、笔线和表格行都来自同一份分型与笔数据。</p>
+    <h3>线段算法参数对比</h3>
+    <p>页面上方的 <code>seg_algo</code> 会影响线段、线段中枢、线段买卖点以及图上的段线。分型列表和笔列表仍由前置分型/成笔逻辑生成，但段相关标注会按所选算法重新计算。</p>
+    <div class="logic-table-wrap">
+      <table class="logic-compare-table">
+        <thead>
+          <tr>
+            <th>参数</th>
+            <th>当前含义</th>
+            <th>核心划分逻辑</th>
+            <th>缺口与确认方式</th>
+            <th>适用场景</th>
+            <th>注意事项</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>chan</code></td>
+            <td>默认线段算法，当前系统稳定口径。</td>
+            <td>基于已经生成的笔继续划分线段。上升线段抽取下降笔作为特征序列，下降线段抽取上升笔作为特征序列；在特征序列上寻找顶/底分型来确认线段结束。</td>
+            <td>特征序列分型中间元素与前一元素有缺口时标记 <code>gap=True</code>，不会立即确认线段结束，会继续查找反向分型作为二次确认；无缺口时更容易直接确认。</td>
+            <td>适合日常查看、复核当前系统历史结果、保持与已有中枢和买卖点输出一致。</td>
+            <td>第一、第二特征元素会先走当前包含处理，某些线段 v2.0 强调的缺口关系可能被合并逻辑改写；复杂中间态主要表现为虚线段。</td>
+          </tr>
+          <tr>
+            <td><code>chan_v2</code></td>
+            <td>线段 v2.0 口径的独立实验算法。</td>
+            <td>保留 <code>chan</code> 的特征序列主干，但第一、第二特征序列元素不先做包含合并，优先保留两者之间的缺口/无缺口关系，再进入后续分型和确认流程。</td>
+            <td>当第一、第二特征元素形成的特征序列分型带缺口时，需要后续反向确认；缺口关系不会因为一开始的包含合并被抹掉，更贴近“有缺口需要二次确认、线段只能被线段破坏”的解释口径。</td>
+            <td>适合对照线段 v2.0 文档、检查缺口导致的线段端点变化、分析为什么同一批笔在不同算法下段线不同。</td>
+            <td>这是新增算法，输出可能不同于默认 <code>chan</code>；下游线段中枢、线段买卖点也会随之变化，建议与 <code>chan</code> 并行对照。</td>
+          </tr>
+          <tr>
+            <td><code>1+1</code></td>
+            <td>保留的都业华 1+1 终结算法入口。</td>
+            <td>不走当前默认的特征序列主流程，而是按 1+1 终结思路处理线段结束。它更偏“笔序列终结关系”的划分方式，和 <code>chan</code> 的特征序列分型确认不同。</td>
+            <td>不使用 <code>CEigen.gap</code> 这套特征序列缺口二次确认逻辑，因此缺口对线段结束的影响不会按 <code>chan</code>/<code>chan_v2</code> 的方式表达。</td>
+            <td>主要用于历史对照、临时排查不同线段算法对结果的影响。</td>
+            <td>代码中已有提示该算法 deprecated / no longer maintained，不建议作为默认实盘口径；结果需要谨慎解释。</td>
+          </tr>
+          <tr>
+            <td><code>break</code></td>
+            <td>保留的按线段破坏定义划分的旧算法入口。</td>
+            <td>更偏向按笔对前线段高低点的突破关系来判断线段破坏和新段生成，而不是先抽取反向笔形成特征序列分型。</td>
+            <td>主要关注笔高低突破关系，不使用 <code>chan</code> 的特征序列缺口确认分支；缺口如果改变了笔的高低点，可能间接影响结果，但没有独立缺口状态。</td>
+            <td>适合做“突破式划段”和默认特征序列划段的差异比较。</td>
+            <td>代码中也标注 deprecated / no longer maintained；在复杂包含、缺口、中间态场景下，解释力弱于当前重点维护的 <code>chan</code>/<code>chan_v2</code>。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     <div class="logic-grid">
       <div class="logic-card">
         <h3>原始分型列表</h3>
