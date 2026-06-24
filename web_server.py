@@ -141,11 +141,27 @@ def parse_source(value: str):
     raise ValueError(f"不支持的数据源: {value}")
 
 
-def make_config(trigger_step: bool = False) -> CChanConfig:
+SEG_ALGO_OPTIONS = {
+    "chan": "chan",
+    "chan_v2": "chan_v2",
+    "1+1": "1+1",
+    "break": "break",
+}
+
+
+def parse_seg_algo(value: str) -> str:
+    seg_algo = (value or "chan").strip().lower()
+    if seg_algo in SEG_ALGO_OPTIONS:
+        return SEG_ALGO_OPTIONS[seg_algo]
+    raise ValueError(f"不支持的线段算法: {value}")
+
+
+def make_config(trigger_step: bool = False, seg_algo: str = "chan") -> CChanConfig:
     return CChanConfig({
         "bi_strict": True,
         "bi_fx_check": "totally",
         "gap_as_kl": True,
+        "seg_algo": parse_seg_algo(seg_algo),
         "trigger_step": trigger_step,
         "skip_step": 0,
         "divergence_rate": float("inf"),
@@ -189,19 +205,19 @@ def make_plot_para() -> dict:
     }
 
 
-def build_single_level_chan(code: str, lv: KL_TYPE, begin_time: str, data_src) -> CChan:
+def build_single_level_chan(code: str, lv: KL_TYPE, begin_time: str, data_src, seg_algo: str = "chan") -> CChan:
     return CChan(
         code=code,
         begin_time=begin_time,
         end_time=None,
         data_src=data_src,
         lv_list=[lv],
-        config=make_config(),
+        config=make_config(seg_algo=seg_algo),
         autype=AUTYPE.QFQ,
     )
 
 
-def build_level_nav(code: str, active_lv: KL_TYPE, days: int, source: str) -> list[dict[str, str]]:
+def build_level_nav(code: str, active_lv: KL_TYPE, days: int, source: str, seg_algo: str) -> list[dict[str, str]]:
     labels = {
         "1m": "1分钟",
         "5m": "5分钟",
@@ -217,6 +233,7 @@ def build_level_nav(code: str, active_lv: KL_TYPE, days: int, source: str) -> li
             "lv": lv_key,
             "days": str(days),
             "source": source,
+            "seg_algo": seg_algo,
         })
         items.append({
             "label": label,
@@ -226,23 +243,24 @@ def build_level_nav(code: str, active_lv: KL_TYPE, days: int, source: str) -> li
     return items
 
 
-def build_chart_html(code: str, lv_key: str, days: int, source: str = DEFAULT_SOURCE) -> str:
+def build_chart_html(code: str, lv_key: str, days: int, source: str = DEFAULT_SOURCE, seg_algo: str = "chan") -> str:
     normalized_code = normalize_code(code)
     lv = parse_lv(lv_key)
     data_src = parse_source(source)
+    seg_algo = parse_seg_algo(seg_algo)
     days = max(5, min(days, 3650))
     begin_time = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
     if data_src == DATA_SRC.MOOTDX:
         from DataAPI.MootdxAPI import CMootdx
 
         CMootdx.do_close()
-    chan = build_single_level_chan(normalized_code, lv, begin_time, data_src)
+    chan = build_single_level_chan(normalized_code, lv, begin_time, data_src, seg_algo=seg_algo)
     html_text = CHtmlPlotDriver(
         chan,
         plot_config=make_plot_config(),
         plot_para=make_plot_para(),
         active_lv=lv,
-        level_nav=build_level_nav(normalized_code, lv, days, source),
+        level_nav=build_level_nav(normalized_code, lv, days, source, seg_algo),
     ).to_html()
     chart_title = make_chart_title(normalized_code)
     escaped_code = html.escape(str(chan.code))
@@ -264,8 +282,8 @@ def attach_chart_signature(html_text: str, signature: str) -> str:
     return html_text
 
 
-def build_chart_payload(code: str, lv_key: str, days: int, source: str = DEFAULT_SOURCE) -> tuple[str, str]:
-    html_text = build_chart_html(code, lv_key, days, source)
+def build_chart_payload(code: str, lv_key: str, days: int, source: str = DEFAULT_SOURCE, seg_algo: str = "chan") -> tuple[str, str]:
+    html_text = build_chart_html(code, lv_key, days, source, seg_algo)
     signature = sign_chart_html(html_text)
     return attach_chart_signature(html_text, signature), signature
 
@@ -304,7 +322,7 @@ pre {{ white-space:pre-wrap; word-break:break-word; background:#f8fafc; border:1
 
 def index_html(host: str, port: int) -> str:
     quick_items = json.dumps(QUICK_ITEMS, ensure_ascii=False)
-    default_query = urlencode({"code": DEFAULT_CODE, "lv": "1m", "days": "30", "source": DEFAULT_SOURCE})
+    default_query = urlencode({"code": DEFAULT_CODE, "lv": "1m", "days": "30", "source": DEFAULT_SOURCE, "seg_algo": "chan"})
     chart_url = f"chart?{default_query}"
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -625,6 +643,12 @@ iframe {{
           <option value="mootdx" selected>通达信</option>
           <option value="eastmoney">东方财富</option>
         </select>
+        <select id="seg-algo-select" name="seg_algo" title="切换线段划分算法">
+          <option value="chan" selected>线段 chan</option>
+          <option value="chan_v2">线段 v2.0</option>
+          <option value="1+1">线段 1+1</option>
+          <option value="break">线段 break</option>
+        </select>
         <button class="primary" type="submit">查询</button>
         <button class="auto-refresh" id="auto-refresh-btn" type="button" aria-pressed="false" title="开市时间每10秒重新请求当前图表">自动刷新</button>
         <span class="status" id="status">入口：http://{html.escape(host)}:{port}/</span>
@@ -657,6 +681,7 @@ var codeInput = document.getElementById('code-input');
 var lvSelect = document.getElementById('lv-select');
 var daysSelect = document.getElementById('days-select');
 var sourceSelect = document.getElementById('source-select');
+var segAlgoSelect = document.getElementById('seg-algo-select');
 var frame = document.getElementById('chart-frame');
 var quickList = document.getElementById('quick-list');
 var statusEl = document.getElementById('status');
@@ -679,6 +704,7 @@ function buildUrl(code, cacheBust) {{
   params.set('lv', lvSelect.value);
   params.set('days', daysSelect.value);
   params.set('source', sourceSelect.value);
+  params.set('seg_algo', segAlgoSelect.value);
   if (cacheBust) params.set('_ts', Date.now());
   return 'chart?' + params.toString();
 }}
@@ -688,6 +714,7 @@ function buildFragmentUrl(cacheBust) {{
   params.set('lv', lvSelect.value);
   params.set('days', daysSelect.value);
   params.set('source', sourceSelect.value);
+  params.set('seg_algo', segAlgoSelect.value);
   if (lastChartSignature) params.set('known_sig', lastChartSignature);
   if (cacheBust) params.set('_ts', Date.now());
   return 'chart-fragment?' + params.toString();
@@ -742,7 +769,8 @@ function updateFetchTime(value) {{
   lastDataFetchText = formatFetchTime(value);
 }}
 function chartStatus(prefix) {{
-  var text = prefix + ' ' + codeInput.value + ' · ' + lvSelect.options[lvSelect.selectedIndex].text;
+  var text = prefix + ' ' + codeInput.value + ' · ' + lvSelect.options[lvSelect.selectedIndex].text +
+    ' · ' + segAlgoSelect.options[segAlgoSelect.selectedIndex].text;
   if (lastDataFetchText) text += ' · 最新获取：' + lastDataFetchText;
   return text;
 }}
@@ -864,6 +892,7 @@ function syncControlsFromFrame() {{
     var lv = url.searchParams.get('lv');
     var days = url.searchParams.get('days');
     var source = url.searchParams.get('source');
+    var segAlgo = url.searchParams.get('seg_algo');
     if (code) {{
       codeInput.value = code.toUpperCase();
       setActive(code);
@@ -876,6 +905,9 @@ function syncControlsFromFrame() {{
     }}
     if (source && Array.prototype.some.call(sourceSelect.options, function(option) {{ return option.value === source; }})) {{
       sourceSelect.value = source;
+    }}
+    if (segAlgo && Array.prototype.some.call(segAlgoSelect.options, function(option) {{ return option.value === segAlgo; }})) {{
+      segAlgoSelect.value = segAlgo;
     }}
   }} catch (err) {{}}
 }}
@@ -930,6 +962,9 @@ quickItems.forEach(function(item) {{
 }});
 form.addEventListener('submit', function(e) {{
   e.preventDefault();
+  loadChart(codeInput.value);
+}});
+segAlgoSelect.addEventListener('change', function() {{
   loadChart(codeInput.value);
 }});
 frame.addEventListener('load', function() {{
@@ -1008,12 +1043,13 @@ class ChanChartHandler(BaseHTTPRequestHandler):
         code = (params.get("code") or [DEFAULT_CODE])[0]
         lv = (params.get("lv") or ["1m"])[0]
         source = (params.get("source") or [DEFAULT_SOURCE])[0]
+        seg_algo = (params.get("seg_algo") or ["chan"])[0]
         try:
             days = int((params.get("days") or ["30"])[0])
         except ValueError:
             days = 30
         try:
-            html_text, _signature = build_chart_payload(code, lv, days, source)
+            html_text, _signature = build_chart_payload(code, lv, days, source, seg_algo)
             self.respond_html(html_text)
         except Exception as err:
             detail = traceback.format_exc()
@@ -1024,13 +1060,14 @@ class ChanChartHandler(BaseHTTPRequestHandler):
         code = (params.get("code") or [DEFAULT_CODE])[0]
         lv = (params.get("lv") or ["1m"])[0]
         source = (params.get("source") or [DEFAULT_SOURCE])[0]
+        seg_algo = (params.get("seg_algo") or ["chan"])[0]
         known_sig = (params.get("known_sig") or [""])[0]
         try:
             days = int((params.get("days") or ["30"])[0])
         except ValueError:
             days = 30
         try:
-            html_text, signature = build_chart_payload(code, lv, days, source)
+            html_text, signature = build_chart_payload(code, lv, days, source, seg_algo)
             body = {
                 "changed": signature != known_sig,
                 "signature": signature,
