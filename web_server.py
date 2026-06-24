@@ -145,6 +145,7 @@ def make_config(trigger_step: bool = False) -> CChanConfig:
     return CChanConfig({
         "bi_strict": True,
         "bi_fx_check": "totally",
+        "gap_as_kl": True,
         "trigger_step": trigger_step,
         "skip_step": 0,
         "divergence_rate": float("inf"),

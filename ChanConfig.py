@@ -24,7 +24,7 @@ class CChanConfig:
             bi_algo=conf.get("bi_algo", "normal"),
             is_strict=conf.get("bi_strict", True),
             bi_fx_check=conf.get("bi_fx_check", "strict"),
-            gap_as_kl=conf.get("gap_as_kl", False),
+            gap_as_kl=conf.get("gap_as_kl", True),
             bi_end_is_peak=conf.get('bi_end_is_peak', True),
             bi_allow_sub_peak=conf.get("bi_allow_sub_peak", True),
         )
