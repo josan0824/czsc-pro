@@ -177,16 +177,23 @@ class CBiList:
         previous_bi = self.get_previous_bi(last_end)
         return get_gap_break_info(previous_bi, last_end, klc)
 
+    def get_gap_retrace_info(self, klc: CKLine, last_end: CKLine, for_virtual: bool = False) -> Optional[Dict[str, Any]]:
+        if not self.config.gap_as_kl:
+            return None
+        previous_bi = self.get_previous_bi(last_end)
+        return get_gap_retrace_info(previous_bi, last_end, klc, for_virtual=for_virtual)
+
     def has_gap_break_bi(self, klc: CKLine, last_end: CKLine) -> bool:
         # 有效破格缺口会豁免最小K线跨度；can_make_bi 中还会豁免分型区间重叠检查。
         return self.get_gap_break_info(klc, last_end) is not None
 
     def can_make_bi(self, klc: CKLine, last_end: CKLine, for_virtual: bool = False):
         gap_break_info = self.get_gap_break_info(klc, last_end)
+        gap_retrace_info = self.get_gap_retrace_info(klc, last_end, for_virtual=for_virtual)
         satisify_span = True if self.config.bi_algo == 'fx' else self.satisfy_bi_span(klc, last_end)
         if not satisify_span:
             return False
-        if gap_break_info is None and not last_end.check_fx_valid(klc, self.config.bi_fx_check, for_virtual):
+        if gap_break_info is None and gap_retrace_info is None and not last_end.check_fx_valid(klc, self.config.bi_fx_check, for_virtual):
             return False
         if self.config.bi_end_is_peak and not end_is_peak(last_end, klc):
             return False
@@ -272,3 +279,35 @@ def get_gap_break_info(previous_bi: Optional[CBi], last_end: CKLine, cur_end: CK
                 }
         tmp_klc = next_klc
     return None
+
+
+def get_gap_retrace_info(previous_bi: Optional[CBi], last_end: CKLine, cur_end: CKLine, for_virtual: bool = False) -> Optional[Dict[str, Any]]:
+    if previous_bi is None:
+        return None
+    previous_gap = get_gap_break_info(previous_bi.pre, previous_bi.begin_klc, previous_bi.end_klc)
+    if previous_gap is None:
+        return None
+    if previous_bi.end_klc.idx != last_end.idx:
+        return None
+    if previous_bi.is_down():
+        if last_end.fx != FX_TYPE.BOTTOM:
+            return None
+        if for_virtual:
+            if cur_end.dir != KLINE_DIR.UP:
+                return None
+        elif cur_end.fx != FX_TYPE.TOP:
+            return None
+    elif previous_bi.is_up():
+        if last_end.fx != FX_TYPE.TOP:
+            return None
+        if for_virtual:
+            if cur_end.dir != KLINE_DIR.DOWN:
+                return None
+        elif cur_end.fx != FX_TYPE.BOTTOM:
+            return None
+    else:
+        return None
+    return {
+        "previous_bi_idx": previous_bi.idx,
+        "previous_gap": previous_gap,
+    }

@@ -1,7 +1,7 @@
 from typing import List
 
 from Bi.Bi import CBi
-from Bi.BiList import get_gap_break_info
+from Bi.BiList import get_gap_break_info, get_gap_retrace_info
 from BuySellPoint.BS_Point import CBS_Point
 from Common.CEnum import FX_TYPE
 from KLine.KLine import CKLine
@@ -43,6 +43,7 @@ class CBi_meta:
         self.end_time = bi.get_end_klu().time
         self.is_sure = bi.is_sure
         self.gap_break = get_gap_break_info(bi.pre, bi.begin_klc, bi.end_klc) if gap_as_kl else None
+        self.gap_retrace = get_gap_retrace_info(bi.pre, bi.begin_klc, bi.end_klc) if gap_as_kl else None
 
 
 class CSeg_meta:
