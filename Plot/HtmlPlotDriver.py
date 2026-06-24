@@ -399,6 +399,7 @@ window.addEventListener('message', function(event) {{
     <button class="logic-tab" type="button" data-logic-tab="filter">分型过滤</button>
     <button class="logic-tab" type="button" data-logic-tab="pen">笔构造</button>
     <button class="logic-tab" type="button" data-logic-tab="gap">缺口处理</button>
+    <button class="logic-tab" type="button" data-logic-tab="segment">段划分</button>
     <button class="logic-tab" type="button" data-logic-tab="report">表格口径</button>
   </div>
   <section class="logic-tab-panel active" data-logic-panel="include">
@@ -534,8 +535,55 @@ window.addEventListener('message', function(event) {{
       <div><strong>边界规则</strong><span>等于前一笔起点极值不算突破；连续多个缺口不累计、不拆成多笔；缺口是否回补不取消已经成立的缺口笔；后续反向分型按上一笔终点重新判定，缺口区间不作为禁区。</span></div>
     </div>
   </section>
+  <section class="logic-tab-panel" data-logic-panel="segment">
+    <h2>6. 段划分逻辑</h2>
+    <p>段是在已经生成的笔列表上继续划分出来的更高一级结构。当前页面默认使用 <code>seg_algo=chan</code>，也就是按缠论特征序列逻辑处理，而不是直接按 K 线或分型重新计算。</p>
+    <div class="logic-grid">
+      <div class="logic-card">
+        <h3>输入对象</h3>
+        <p>线段只读取有效笔序列。图上灰白线是笔，绿色粗线是段；段的起止点来自笔的起止点，不会绕过笔直接连接原始 K 线分型。</p>
+      </div>
+      <div class="logic-card">
+        <h3>基本方向</h3>
+        <p>上升段由向上推进的笔结构构成，下降段由向下推进的笔结构构成。段的划分会跟随笔的确认和改写而调整，最后一段可能随最新笔变化。</p>
+      </div>
+      <div class="logic-card">
+        <h3>特征序列</h3>
+        <p><code>seg_algo=chan</code> 会把相反方向的笔抽成特征序列，再在特征序列上寻找顶/底分型，用来判断当前段是否结束。</p>
+      </div>
+      <div class="logic-card">
+        <h3>确认与未确认</h3>
+        <p>线段结束不是只看某一笔的高低点突破，还要看特征序列分型是否确认。若证据不足，图上最后一段可能处于可改写状态。</p>
+      </div>
+    </div>
+    <div class="logic-rule-table">
+      <div><strong>上升段结束</strong><span>从下降笔组成的特征序列中寻找顶分型；出现有效特征序列顶分型后，才具备结束上升段的条件。</span></div>
+      <div><strong>下降段结束</strong><span>从上升笔组成的特征序列中寻找底分型；出现有效特征序列底分型后，才具备结束下降段的条件。</span></div>
+    </div>
+    <div class="logic-grid">
+      <div class="logic-card">
+        <h3>段与缺口</h3>
+        <p>线段层面的缺口使用特征序列元素之间的价格断层判断。若特征序列分型的中间元素与前一元素之间存在缺口，会先标记 <code>gap=True</code>。</p>
+      </div>
+      <div class="logic-card">
+        <h3>有缺口时的确认</h3>
+        <p>当特征序列分型带缺口时，系统不会仅凭该分型立刻确认线段结束，而是继续等待后续反向分型或补充结构来确认。</p>
+      </div>
+      <div class="logic-card">
+        <h3>与笔缺口不同</h3>
+        <p>笔上的 <code>gap_as_kl</code> 规则用于判断候选笔是否可破格成笔；段上的缺口用于特征序列确认，两者作用层级不同。</p>
+      </div>
+      <div class="logic-card">
+        <h3>中枢关系</h3>
+        <p>中枢按笔或段的区间重叠生成、延伸和合并。段改变后，段级别中枢也会随段的起止区间重新计算。</p>
+      </div>
+    </div>
+    <div class="logic-example">
+      <strong>例子：</strong>一段上升走势中，后续下降笔构成的特征序列出现顶分型，但该顶分型中间元素与前一元素之间有缺口，此时不会立即确认上升段结束；只有后续走势给出反向确认后，段终点才会落定。
+    </div>
+  </section>
   <section class="logic-tab-panel" data-logic-panel="report">
-    <h2>6. 表格与图上标注口径</h2>
+    <h2>7. 表格与图上标注口径</h2>
     <p>报告里的图形和表格是为了复核计算过程，不是额外再跑一套规则。图上的三角形、虚线框、笔线和表格行都来自同一份分型与笔数据。</p>
     <div class="logic-grid">
       <div class="logic-card">
