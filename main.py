@@ -113,6 +113,7 @@ def main():
     config = CChanConfig({
         "bi_strict": True,
         "bi_fx_check": "totally",
+        "gap_as_kl": True,
         "trigger_step": False,
         "skip_step": 0,
         "divergence_rate": float("inf"),

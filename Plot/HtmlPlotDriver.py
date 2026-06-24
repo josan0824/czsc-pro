@@ -462,7 +462,7 @@ window.addEventListener('message', function(event) {{
   </section>
   <section class="logic-tab-panel" data-logic-panel="gap">
     <h2>5. 缺口处理</h2>
-    <p>当前算法没有把缺口作为分型的独立确认条件。缺口主要影响两个位置：一是笔的跨度计数是否额外加一，二是 <code>seg_algo=chan</code> 线段算法里的特征序列分型确认。</p>
+    <p>当前算法没有把缺口作为分型的独立确认条件。缺口主要影响两个位置：一是笔在跨度不足时是否允许破格成笔，二是 <code>seg_algo=chan</code> 线段算法里的特征序列分型确认。</p>
     <div class="logic-grid">
       <div class="logic-card">
         <h3>缺口如何识别</h3>
@@ -475,16 +475,16 @@ window.addEventListener('message', function(event) {{
       </div>
       <div class="logic-card">
         <h3>当前页面配置</h3>
-        <p>当前图表服务没有显式设置 <code>gap_as_kl</code>，因此走 <code>CChanConfig</code> 默认值 <code>gap_as_kl=False</code>。</p>
-        <p>实际效果：缺口不会被当成额外一根 K 线来增加成笔跨度。</p>
+        <p>当前图表服务没有显式设置 <code>gap_as_kl</code>，因此走 <code>CChanConfig</code> 默认值 <code>gap_as_kl=True</code>。</p>
+        <p>实际效果：缺口不会累计增加 K 线数量，只在反向跳空严格突破前一笔起点极值时，豁免该候选笔的最小跨度限制。</p>
       </div>
     </div>
     <div class="logic-rule-table">
       <div><strong>gap_as_kl=False</strong><span>端点跨度只按合并 K 索引差计算：<code>span = end_idx - begin_idx</code>。即使中间有缺口，也不会降低成笔所需的实际合并 K 数量。</span></div>
-      <div><strong>gap_as_kl=True</strong><span>当端点跨度较短时，会逐段检查中间相邻合并 K 是否有缺口；每出现一个缺口，跨度额外加 1。这样某些原本因为跨度不足而不能成笔的顶底分型，可能因为缺口补足跨度而成笔。</span></div>
+      <div><strong>gap_as_kl=True</strong><span>当端点跨度不足时，只检查候选区间内是否存在有效破格缺口。向上笔要求向上跳空的缺口上沿严格高于前一笔起点顶；向下笔要求向下跳空的缺口下沿严格低于前一笔起点底。</span></div>
     </div>
     <div class="logic-example">
-      <strong>笔的例子：</strong>严格模式下成笔要求跨度至少为 4。若两个端点合并 K 索引差只有 3，当前 <code>gap_as_kl=False</code> 时不会成笔；如果改成 <code>gap_as_kl=True</code>，并且两端点之间存在一个缺口，跨度会按 4 处理，才有机会进入后续 <code>bi_fx_check</code> 区间验证。
+      <strong>笔的例子：</strong>严格模式下成笔要求跨度至少为 4。若两个端点合并 K 索引差不足，当前 <code>gap_as_kl=True</code> 时不会把每个缺口都补成一根 K；只有第一个满足反向突破前一笔起点极值的缺口，才允许候选笔跳过跨度和 <code>bi_fx_check</code> 区间重叠限制。
     </div>
     <div class="logic-grid">
       <div class="logic-card">
@@ -493,7 +493,7 @@ window.addEventListener('message', function(event) {{
       </div>
       <div class="logic-card">
         <h3>缺口与成笔验证</h3>
-        <p>缺口补跨度只影响 <code>satisfy_bi_span</code>。即使补足跨度，仍必须通过顶底交替、同类极值替换、<code>bi_fx_check=totally</code> 的三 K 区间完全分离，以及 <code>bi_end_is_peak</code> 等后续条件。</p>
+        <p>缺口破格会影响 <code>satisfy_bi_span</code> 和 <code>bi_fx_check</code>。有效反向跳空突破前一笔起点极值后，即使端点分型三 K 区间重叠或共用 K，也允许成笔；但仍必须通过顶底交替、同类极值替换和 <code>bi_end_is_peak</code> 等端点极值条件。</p>
       </div>
       <div class="logic-card">
         <h3>缺口与线段</h3>
@@ -509,7 +509,7 @@ window.addEventListener('message', function(event) {{
     </div>
     <div class="logic-rule-table">
       <div><strong>缺口与中枢</strong><span>中枢没有单独的缺口规则。中枢创建、延伸、合并仍按笔或线段区间是否重叠判断。缺口只会通过笔/线段的高低区间间接影响是否能形成重叠。</span></div>
-      <div><strong>配置建议</strong><span>若希望缺口在笔级别具备“补一根 K”的作用，需要显式设置 <code>gap_as_kl=True</code>；若希望当前页面继续严格按实际合并 K 数量成笔，则保持当前默认 <code>False</code>。</span></div>
+      <div><strong>边界规则</strong><span>等于前一笔起点极值不算突破；连续多个缺口不累计、不拆成多笔；缺口是否回补不影响已经命中的候选成笔检查。</span></div>
     </div>
   </section>
   <section class="logic-tab-panel" data-logic-panel="report">
@@ -550,6 +550,18 @@ window.addEventListener('message', function(event) {{
                 f"成笔：{_fx_label(begin_kind)}到{_fx_label(end_kind)}且K线间隔通过，保留为有效笔",
                 f"跨度：端点原始K线 {bi.begin_x} 至 {bi.end_x}，共 {kl_cnt} 根；价差 {amp:.2f}",
             ]
+            if bi.gap_break:
+                gap_direction = "向上跳空" if bi.gap_break["direction"] == "up" else "向下跳空"
+                cmp_symbol = "&gt;" if bi.gap_break["direction"] == "up" else "&lt;"
+                notes.append({
+                    "html": (
+                        f'缺口破格：合并K {bi.gap_break["prev_klc_idx"]} 到 '
+                        f'{bi.gap_break["next_klc_idx"]} 出现{gap_direction}，'
+                        f'突破价 {_fmt_num(bi.gap_break["gap_value"])} '
+                        f'{cmp_symbol} 前一笔起点极值 {_fmt_num(bi.gap_break["threshold"])}；'
+                        f'豁免最小跨度与分型区间重叠限制，端点极值等其他校验仍需通过。'
+                    )
+                })
             if not bi.is_sure:
                 notes.append("最后一笔为虚笔或尚未完全确认，后续新K线可能改写终点")
             endpoint_map.setdefault(int(bi.begin_klc_idx), []).append(f"第{i + 1}笔起点")

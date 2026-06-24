@@ -1,4 +1,4 @@
-from typing import List, Optional, Union, overload
+from typing import Any, Dict, List, Optional, Union, overload
 
 from Common.CEnum import FX_TYPE, KLINE_DIR
 from KLine.KLine import CKLine
@@ -149,37 +149,44 @@ class CBiList:
     def satisfy_bi_span(self, klc: CKLine, last_end: CKLine):
         bi_span = self.get_klc_span(klc, last_end)
         if self.config.is_strict:
-            return bi_span >= 4
+            return bi_span >= 4 or self.has_gap_break_bi(klc, last_end)
         uint_kl_cnt = 0
         tmp_klc = last_end.next
         while tmp_klc:
             uint_kl_cnt += len(tmp_klc.lst)
             if not tmp_klc.next:  # 最后尾部虚笔的时候，可能klc.idx == last_end.idx+1
-                return False
+                return self.has_gap_break_bi(klc, last_end)
             if tmp_klc.next.idx < klc.idx:
                 tmp_klc = tmp_klc.next
             else:
                 break
-        return bi_span >= 3 and uint_kl_cnt >= 3
+        return (bi_span >= 3 and uint_kl_cnt >= 3) or self.has_gap_break_bi(klc, last_end)
 
     def get_klc_span(self, klc: CKLine, last_end: CKLine) -> int:
-        span = klc.idx - last_end.idx
+        return klc.idx - last_end.idx
+
+    def get_previous_bi(self, last_end: CKLine) -> Optional[CBi]:
+        for bi in reversed(self.bi_list):
+            if bi.end_klc.idx == last_end.idx:
+                return bi
+        return None
+
+    def get_gap_break_info(self, klc: CKLine, last_end: CKLine) -> Optional[Dict[str, Any]]:
         if not self.config.gap_as_kl:
-            return span
-        if span >= 4:  # 加速运算，如果span需要真正精确的值，需要去掉这一行
-            return span
-        tmp_klc = last_end
-        while tmp_klc and tmp_klc.idx < klc.idx:
-            if tmp_klc.has_gap_with_next():
-                span += 1
-            tmp_klc = tmp_klc.next
-        return span
+            return None
+        previous_bi = self.get_previous_bi(last_end)
+        return get_gap_break_info(previous_bi, last_end, klc)
+
+    def has_gap_break_bi(self, klc: CKLine, last_end: CKLine) -> bool:
+        # 有效破格缺口会豁免最小K线跨度；can_make_bi 中还会豁免分型区间重叠检查。
+        return self.get_gap_break_info(klc, last_end) is not None
 
     def can_make_bi(self, klc: CKLine, last_end: CKLine, for_virtual: bool = False):
+        gap_break_info = self.get_gap_break_info(klc, last_end)
         satisify_span = True if self.config.bi_algo == 'fx' else self.satisfy_bi_span(klc, last_end)
         if not satisify_span:
             return False
-        if not last_end.check_fx_valid(klc, self.config.bi_fx_check, for_virtual):
+        if gap_break_info is None and not last_end.check_fx_valid(klc, self.config.bi_fx_check, for_virtual):
             return False
         if self.config.bi_end_is_peak and not end_is_peak(last_end, klc):
             return False
@@ -233,3 +240,35 @@ def end_is_peak(last_end: CKLine, cur_end: CKLine) -> bool:
                 return False
             klc = klc.get_next()
     return True
+
+
+def get_gap_break_info(previous_bi: Optional[CBi], last_end: CKLine, cur_end: CKLine) -> Optional[Dict[str, Any]]:
+    if previous_bi is None:
+        return None
+    tmp_klc = last_end
+    while tmp_klc and tmp_klc.idx < cur_end.idx:
+        next_klc = tmp_klc.next
+        if next_klc is None:
+            return None
+        if previous_bi.is_down():
+            gap_value = next_klc.get_klu_min_low()
+            if tmp_klc.get_klu_max_high() < gap_value and gap_value > previous_bi.begin_klc.high:
+                return {
+                    "direction": "up",
+                    "prev_klc_idx": tmp_klc.idx,
+                    "next_klc_idx": next_klc.idx,
+                    "gap_value": gap_value,
+                    "threshold": previous_bi.begin_klc.high,
+                }
+        elif previous_bi.is_up():
+            gap_value = next_klc.get_klu_max_high()
+            if tmp_klc.get_klu_min_low() > gap_value and gap_value < previous_bi.begin_klc.low:
+                return {
+                    "direction": "down",
+                    "prev_klc_idx": tmp_klc.idx,
+                    "next_klc_idx": next_klc.idx,
+                    "gap_value": gap_value,
+                    "threshold": previous_bi.begin_klc.low,
+                }
+        tmp_klc = next_klc
+    return None

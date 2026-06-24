@@ -1,6 +1,7 @@
 from typing import List
 
 from Bi.Bi import CBi
+from Bi.BiList import get_gap_break_info
 from BuySellPoint.BS_Point import CBS_Point
 from Common.CEnum import FX_TYPE
 from KLine.KLine import CKLine
@@ -26,7 +27,7 @@ class Cklc_meta:
 
 
 class CBi_meta:
-    def __init__(self, bi: CBi):
+    def __init__(self, bi: CBi, gap_as_kl: bool = True):
         self.idx = bi.idx
         self.dir = bi.dir
         self.type = bi.type
@@ -41,6 +42,7 @@ class CBi_meta:
         self.begin_time = bi.get_begin_klu().time
         self.end_time = bi.get_end_klu().time
         self.is_sure = bi.is_sure
+        self.gap_break = get_gap_break_info(bi.pre, bi.begin_klc, bi.end_klc) if gap_as_kl else None
 
 
 class CSeg_meta:
@@ -132,7 +134,8 @@ class CChanPlotMeta:
         self.datetick = [klu.time.to_str() for klu in self.klu_iter()]
         self.klu_len = sum(len(klc.klu_list) for klc in self.klc_list)
 
-        self.bi_list = [CBi_meta(bi) for bi in kl_list.bi_list]
+        gap_as_kl = getattr(kl_list.bi_list.config, "gap_as_kl", False)
+        self.bi_list = [CBi_meta(bi, gap_as_kl=gap_as_kl) for bi in kl_list.bi_list]
 
         self.seg_list: List[CSeg_meta] = []
         self.eigenfx_lst: List[CEigenFX_meta] = []
