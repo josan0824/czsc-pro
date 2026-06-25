@@ -132,7 +132,7 @@ def main():
         "plot_kline_combine": True,
         "plot_bi": True,
         "plot_seg": True,
-        "plot_eigen": False,
+        "plot_eigen": True,
         "plot_zs": True,
         "plot_macd": False,
         "plot_mean": False,

@@ -154,6 +154,10 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
 }}
 .ma-layer {{ display:none; }}
 .ma-layer.active {{ display:inline; }}
+.kline-layer {{ display:none; }}
+.kline-layer.active {{ display:inline; }}
+.eigen-layer {{ display:none; }}
+.eigen-layer.active {{ display:inline; }}
 .fractal-detail-layer {{ display:none; }}
 .fractal-detail-layer.active {{ display:inline; }}
 .chart-wrap.is-panning .fractal-detail-layer,
@@ -1202,6 +1206,23 @@ window.addEventListener('message', function(event) {{
                 "direction": "up" if seg.end_y >= seg.begin_y else "down",
             })
 
+        show_eigen = bool(self.plot_config.get("plot_eigen", False))
+        eigen_boxes = []
+        if show_eigen:
+            for i, eigenfx in enumerate(meta.eigenfx_lst):
+                kind = "top" if eigenfx.fx == FX_TYPE.TOP else "bottom"
+                for j, ele in enumerate(eigenfx.ele):
+                    eigen_boxes.append({
+                        "i": i,
+                        "part": j + 1,
+                        "kind": kind,
+                        "gap": bool(eigenfx.gap),
+                        "x": round(left + ele.begin_x * bar_w, 1),
+                        "y": round(yp(ele.end_y), 1),
+                        "w": round(max(bar_w, (ele.end_x - ele.begin_x + 1) * bar_w), 1),
+                        "h": round(max(5, yp(ele.begin_y) - yp(ele.end_y)), 1),
+                    })
+
         def collect_zs_rects(zs_list, level: str) -> List[Dict[str, Any]]:
             rects: List[Dict[str, Any]] = []
             for i, zs in enumerate(zs_list):
@@ -1315,6 +1336,7 @@ window.addEventListener('message', function(event) {{
                 )
         svg.append("</g>")
 
+        svg.append(f'<g id="kline-layer-{chart_id}" class="kline-layer active">')
         for i, bar in enumerate(bars):
             x = left + i * bar_w
             cx = x + bar_w / 2
@@ -1340,6 +1362,7 @@ window.addEventListener('message', function(event) {{
                 f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" '
                 f'fill="none" stroke="{stroke}" stroke-width="1" stroke-dasharray="4 3" opacity=".62" rx="1"/>'
             )
+        svg.append("</g>")
 
         for zs in zs_rects:
             color = "#f59e0b" if zs["level"].startswith("bi") else "#ef4444"
@@ -1373,6 +1396,20 @@ window.addEventListener('message', function(event) {{
                 f'<line x1="{seg["x1"]:.1f}" y1="{seg["y1"]:.1f}" x2="{seg["x2"]:.1f}" y2="{seg["y2"]:.1f}" '
                 f'stroke="#69a35f" stroke-width="2.4" opacity=".72" stroke-linecap="round"{dash}/>'
             )
+
+        svg.append(f'<g id="eigen-layer-{chart_id}" class="eigen-layer">')
+        for box in eigen_boxes:
+            color = "#ef4444" if box["kind"] == "top" else "#38bdf8"
+            dash = ' stroke-dasharray="6 4"' if box["gap"] else ""
+            svg.append(
+                f'<rect x="{box["x"]:.1f}" y="{box["y"]:.1f}" width="{box["w"]:.1f}" height="{box["h"]:.1f}" '
+                f'fill="{color}" fill-opacity=".12" stroke="{color}" stroke-width="1.25" opacity=".82" rx="1"{dash}/>'
+            )
+            svg.append(
+                f'<text class="chart-note-label" x="{box["x"] + 3:.1f}" y="{box["y"] + 10:.1f}" '
+                f'fill="{color}" font-size="9">E{box["i"]}.{box["part"]}</text>'
+            )
+        svg.append("</g>")
 
         svg.append(f'<g id="fractal-range-layer-{chart_id}"></g>')
         svg.append(f'<g id="fractal-ref-layer-{chart_id}"></g>')
@@ -1447,7 +1484,9 @@ window.addEventListener('message', function(event) {{
     <button id="zoom-out-{chart_id}" title="缩小" type="button">-</button>
     <button id="reset-{chart_id}" title="重置视图" type="button">重置</button>
     <button id="clear-{chart_id}" title="清理分型标记" type="button">清理</button>
+    <button id="kline-toggle-{chart_id}" class="kline-toggle active" title="显示/隐藏K线" type="button" aria-pressed="true">K线</button>
     <button id="ma-toggle-{chart_id}" class="ma-toggle" title="显示/隐藏均线" type="button" aria-pressed="false">均线</button>
+    <button id="eigen-toggle-{chart_id}" class="eigen-toggle" title="显示/隐藏线段特征序列" type="button" aria-pressed="false">特征</button>
     <span class="chart-help">滚轮/↑↓缩放 · 拖拽平移 · 双击十字星 · 悬停查看 OHLC</span>
   </div>
   <div id="wrap-{chart_id}" class="chart-wrap" tabindex="0" aria-label="{html.escape(label)} K线图">
@@ -1461,6 +1500,8 @@ window.addEventListener('message', function(event) {{
     <span><i class="swatch" style="background:#f59e0b"></i>底分型/中枢</span>
     <span><i class="swatch" style="background:#cbd5e1"></i>笔</span>
     <span><i class="swatch" style="background:#69a35f"></i>段</span>
+    <span><i class="swatch" style="background:#ef4444"></i>顶特征序列</span>
+    <span><i class="swatch" style="background:#38bdf8"></i>底特征序列</span>
     <span><i class="swatch" style="background:#ef4444"></i>买点</span>
     <span><i class="swatch" style="background:#22c55e"></i>卖点</span>
   </div>
@@ -1477,6 +1518,7 @@ var data = {{
   fractals:{_json(fractals)},
   pens:{_json(pens)},
   segments:{_json(segments)},
+  eigenBoxes:{_json(eigen_boxes)},
   zs:{_json(zs_rects)},
   bsPoints:{_json(bs_points)},
   totalBars:{len(bars)}
@@ -1487,8 +1529,12 @@ var tip = document.getElementById('tooltip-{chart_id}');
 var selected = document.getElementById('selected-{chart_id}');
 var focused = document.getElementById('focused-{chart_id}');
 var focusedBand = document.getElementById('focused-band-{chart_id}');
+var klineLayer = document.getElementById('kline-layer-{chart_id}');
+var klineToggle = document.getElementById('kline-toggle-{chart_id}');
 var maLayer = document.getElementById('ma-layer-{chart_id}');
 var maToggle = document.getElementById('ma-toggle-{chart_id}');
+var eigenLayer = document.getElementById('eigen-layer-{chart_id}');
+var eigenToggle = document.getElementById('eigen-toggle-{chart_id}');
 var fractalDetailLayer = document.getElementById('fractal-detail-layer-{chart_id}');
 var fractalRangeLayer = document.getElementById('fractal-range-layer-{chart_id}');
 var fractalRefLayer = document.getElementById('fractal-ref-layer-{chart_id}');
@@ -1991,10 +2037,20 @@ document.getElementById('clear-{chart_id}').addEventListener('click', function()
     node.classList.remove('fx-ref-active');
   }});
 }});
+klineToggle.addEventListener('click', function() {{
+  var active = klineLayer.classList.toggle('active');
+  klineToggle.classList.toggle('active', active);
+  klineToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
+}});
 maToggle.addEventListener('click', function() {{
   var active = maLayer.classList.toggle('active');
   maToggle.classList.toggle('active', active);
   maToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
+}});
+eigenToggle.addEventListener('click', function() {{
+  var active = eigenLayer.classList.toggle('active');
+  eigenToggle.classList.toggle('active', active);
+  eigenToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
 }});
 panelRoot.querySelectorAll('[data-fx-row].chart-price-label,[data-fx-row].chart-fractal-marker').forEach(function(node) {{
   node.addEventListener('mousedown', function(e) {{
