@@ -144,6 +144,8 @@ def parse_source(value: str):
 SEG_ALGO_OPTIONS = {
     "chan": "chan",
     "chan_v2": "chan_v2",
+    "chan_doubao": "chan_doubao",
+    "doubao": "chan_doubao",
     "1+1": "1+1",
     "break": "break",
 }
@@ -646,6 +648,7 @@ iframe {{
         <select id="seg-algo-select" name="seg_algo" title="切换线段划分算法">
           <option value="chan" selected>线段 chan</option>
           <option value="chan_v2">线段 v2.0</option>
+          <option value="chan_doubao">线段 doubao</option>
           <option value="1+1">线段 1+1</option>
           <option value="break">线段 break</option>
         </select>
