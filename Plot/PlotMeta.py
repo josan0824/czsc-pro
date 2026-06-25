@@ -49,12 +49,16 @@ class CBi_meta:
 class CSeg_meta:
     def __init__(self, seg: CSeg):
         if isinstance(seg.start_bi, CBi):
+            self.begin_bi_idx = seg.start_bi.idx
+            self.end_bi_idx = seg.end_bi.idx
             self.begin_x = seg.start_bi.get_begin_klu().idx
             self.begin_y = seg.start_bi.get_begin_val()
             self.end_x = seg.end_bi.get_end_klu().idx
             self.end_y = seg.end_bi.get_end_val()
         else:
             assert isinstance(seg.start_bi, CSeg)
+            self.begin_bi_idx = seg.start_bi.idx
+            self.end_bi_idx = seg.end_bi.idx
             self.begin_x = seg.start_bi.start_bi.get_begin_klu().idx
             self.begin_y = seg.start_bi.start_bi.get_begin_val()
             self.end_x = seg.end_bi.end_bi.get_end_klu().idx

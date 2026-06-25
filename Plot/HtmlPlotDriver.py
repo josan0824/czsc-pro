@@ -36,6 +36,10 @@ def _dir_label(direction: str) -> str:
     return "向上笔" if direction == "up" else "向下笔"
 
 
+def _seg_dir_label(direction: str) -> str:
+    return "向上线段" if direction == "up" else "向下线段"
+
+
 class CHtmlPlotDriver:
     """Generate an interactive standalone HTML chart for Chan fractals.
 
@@ -175,13 +179,16 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
 .chart-bsp-label {{ vector-effect:non-scaling-stroke; }}
 .chan-chart-svg .chart-pen-line,
 .chan-chart-svg .chart-pen-hit,
+.chan-chart-svg .chart-seg-line,
+.chan-chart-svg .chart-seg-hit,
 .chan-chart-svg .chart-fractal-marker {{ pointer-events:all; }}
-.chart-pen-line {{ cursor:pointer; }}
+.chart-pen-line,.chart-seg-line {{ cursor:pointer; }}
 .fractal-range-box {{ pointer-events:none; }}
 .fractal-ref-box {{ pointer-events:none; }}
 .chart-fractal-marker.fx-ref-active {{ filter:drop-shadow(0 0 4px rgba(245,158,11,.95)); }}
 .chart-price-label.fx-ref-active {{ fill:#fef08a; font-weight:700; }}
 .chart-fractal-marker:hover {{ filter:drop-shadow(0 0 3px rgba(247,144,9,.85)); }}
+.chart-seg-line.focused-seg {{ filter:drop-shadow(0 0 5px rgba(132,204,22,.9)); }}
 .tooltip {{
   position:absolute; z-index:5; display:none; min-width:190px; padding:8px 10px;
   border:1px solid #344054; border-radius:4px; background:rgba(15,23,42,.96);
@@ -773,7 +780,7 @@ window.addEventListener('message', function(event) {{
 </div>
 """
 
-    def _build_report_rows(self, meta: CChanPlotMeta) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    def _build_report_rows(self, meta: CChanPlotMeta) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
         endpoint_map: Dict[int, List[str]] = {}
         pen_rows: List[Dict[str, Any]] = []
         for i, bi in enumerate(meta.bi_list):
@@ -814,6 +821,7 @@ window.addEventListener('message', function(event) {{
             endpoint_map.setdefault(int(bi.end_klc_idx), []).append(f"第{i + 1}笔终点")
             pen_rows.append({
                 "idx": i + 1,
+                "source_idx": int(bi.idx),
                 "direction": direction,
                 "begin_klc_idx": int(bi.begin_klc_idx),
                 "end_klc_idx": int(bi.end_klc_idx),
@@ -830,6 +838,72 @@ window.addEventListener('message', function(event) {{
                 "status": "有效" if bi.is_sure else "未确认",
                 "notes": notes,
                 "target_idx": int(bi.end_x),
+            })
+
+        pen_by_source_idx = {row["source_idx"]: row for row in pen_rows}
+        seg_rows: List[Dict[str, Any]] = []
+        for i, seg in enumerate(meta.seg_list):
+            direction = "up" if seg.dir == BI_DIR.UP else "down"
+            begin_bi_idx = int(seg.begin_bi_idx)
+            end_bi_idx = int(seg.end_bi_idx)
+            component_pens = [
+                pen_by_source_idx[bi_idx]
+                for bi_idx in range(begin_bi_idx, end_bi_idx + 1)
+                if bi_idx in pen_by_source_idx
+            ]
+            begin_pen = component_pens[0] if component_pens else None
+            end_pen = component_pens[-1] if component_pens else None
+            begin_date = begin_pen["begin_date"] if begin_pen else ""
+            begin_kind = begin_pen["begin_kind"] if begin_pen else ("bottom" if direction == "up" else "top")
+            end_date = end_pen["end_date"] if end_pen else ""
+            end_kind = end_pen["end_kind"] if end_pen else ("top" if direction == "up" else "bottom")
+            amp = abs(float(seg.end_y) - float(seg.begin_y))
+            kl_cnt = int(seg.end_x - seg.begin_x + 1)
+            notes: List[Any] = [
+                (
+                    f"线段由第{begin_bi_idx + 1}笔至第{end_bi_idx + 1}笔构成，"
+                    f"共{len(component_pens)}笔；{_seg_dir_label(direction)}从"
+                    f"{_fx_label(begin_kind)} {_fmt_num(seg.begin_y)} 推进到"
+                    f"{_fx_label(end_kind)} {_fmt_num(seg.end_y)}。"
+                ),
+                (
+                    "线段构造过程：先生成有效笔序列，再在反向笔组成的特征序列上确认段结束；"
+                    "相邻线段首尾相接，线段端点取自笔端点，不直接连接原始K线。"
+                ),
+            ]
+            if component_pens:
+                pen_parts = []
+                for pen in component_pens:
+                    pen_parts.append(
+                        f'第{pen["idx"]}笔：{_dir_label(pen["direction"])}，'
+                        f'{_fx_label(pen["begin_kind"])} {html.escape(pen["begin_date"])} '
+                        f'{_fmt_num(pen["begin_price"])} → '
+                        f'{_fx_label(pen["end_kind"])} {html.escape(pen["end_date"])} '
+                        f'{_fmt_num(pen["end_price"])}，'
+                        f'跨度{pen["kl_cnt"]}根，状态{html.escape(pen["status"])}'
+                    )
+                notes.append({"html": "<br>".join(pen_parts)})
+            if not seg.is_sure:
+                notes.append("最后线段未确认，后续新笔可能继续改写线段终点或方向。")
+            seg_rows.append({
+                "idx": i + 1,
+                "direction": direction,
+                "begin_bi_idx": begin_bi_idx,
+                "end_bi_idx": end_bi_idx,
+                "begin_x": int(seg.begin_x),
+                "end_x": int(seg.end_x),
+                "begin_date": begin_date,
+                "begin_kind": begin_kind,
+                "begin_price": float(seg.begin_y),
+                "end_date": end_date,
+                "end_kind": end_kind,
+                "end_price": float(seg.end_y),
+                "bi_cnt": len(component_pens),
+                "kl_cnt": kl_cnt,
+                "amp": amp,
+                "status": "有效" if seg.is_sure else "未确认",
+                "notes": notes,
+                "target_idx": int(seg.end_x),
             })
 
         fx_rows: List[Dict[str, Any]] = []
@@ -1017,10 +1091,10 @@ window.addEventListener('message', function(event) {{
                             f'因此当前分型只作为从前一有效端点到该有效端点过程中的中间分型记录。'
                         )
                     })
-        return fx_rows, pen_rows
+        return fx_rows, pen_rows, seg_rows
 
-    def _make_detail_tables(self, meta: CChanPlotMeta, chart_id: str, label: str) -> tuple[str, str]:
-        fx_rows, pen_rows = self._build_report_rows(meta)
+    def _make_detail_tables(self, meta: CChanPlotMeta, chart_id: str, label: str) -> tuple[str, str, str]:
+        fx_rows, pen_rows, seg_rows = self._build_report_rows(meta)
         input_type = self._time_input_type(label)
         input_title = "选择交易日期" if input_type == "date" else "选择交易日期和分钟"
 
@@ -1054,6 +1128,27 @@ window.addEventListener('message', function(event) {{
                 f'<td>{_fx_label(row["end_kind"])}</td>'
                 f'<td>{_fmt_num(row["end_price"])}</td>'
                 f'<td>{row["kl_cnt"]}</td>'
+                f'<td>{_fmt_num(row["amp"])}</td>'
+                f'<td>{html.escape(row["status"])}</td>'
+                f'<td class="note-cell">{self._note_html(row["notes"])}</td>'
+                '</tr>'
+            )
+
+        seg_body = []
+        for row in seg_rows:
+            seg_body.append(
+                f'<tr class="clickable" data-seg-row="{row["idx"]}" data-seg-begin="{row["begin_x"]}" data-seg-end="{row["end_x"]}" data-target-idx="{row["target_idx"]}">'
+                f'<td>{row["idx"]}</td>'
+                f'<td class="seg-direction-cell">{_seg_dir_label(row["direction"])}</td>'
+                f'<td>第{row["begin_bi_idx"] + 1}笔</td>'
+                f'<td>第{row["end_bi_idx"] + 1}笔</td>'
+                f'<td>{html.escape(row["begin_date"])}</td>'
+                f'<td>{_fx_label(row["begin_kind"])}</td>'
+                f'<td>{_fmt_num(row["begin_price"])}</td>'
+                f'<td>{html.escape(row["end_date"])}</td>'
+                f'<td>{_fx_label(row["end_kind"])}</td>'
+                f'<td>{_fmt_num(row["end_price"])}</td>'
+                f'<td>{row["bi_cnt"]}</td>'
                 f'<td>{_fmt_num(row["amp"])}</td>'
                 f'<td>{html.escape(row["status"])}</td>'
                 f'<td class="note-cell">{self._note_html(row["notes"])}</td>'
@@ -1097,7 +1192,23 @@ window.addEventListener('message', function(event) {{
   </div>
 </section>
 """
-        return fx_section, pen_section
+        seg_section = f"""
+<section class="report-section">
+  <div class="section-head">
+    <h2>线段列表（共{len(seg_rows)}段，有效{sum(1 for row in seg_rows if row["status"] == "有效")}段）</h2>
+    <div class="section-actions">
+      <button class="collapse-btn" type="button" data-collapse="seg-table-{chart_id}">收起</button>
+    </div>
+  </div>
+  <div id="seg-table-{chart_id}" class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>#</th><th>方向</th><th>起始笔</th><th>结束笔</th><th>起点日期</th><th>起点类型</th><th>起点价格</th><th>终点日期</th><th>终点类型</th><th>终点价格</th><th>笔数</th><th>价差</th><th>状态</th><th>备注</th></tr></thead>
+      <tbody>{"".join(seg_body) if seg_body else '<tr><td colspan="14">暂无线段</td></tr>'}</tbody>
+    </table>
+  </div>
+</section>
+"""
+        return fx_section, pen_section, seg_section
 
     def _make_chart(self, meta: CChanPlotMeta, label: str, chart_id: str) -> str:
         bars = list(meta.klu_iter())
@@ -1204,6 +1315,7 @@ window.addEventListener('message', function(event) {{
                 "y2": round(yp(seg.end_y), 1),
                 "sure": bool(seg.is_sure),
                 "direction": "up" if seg.end_y >= seg.begin_y else "down",
+                "row": i + 1,
             })
 
         show_eigen = bool(self.plot_config.get("plot_eigen", False))
@@ -1393,7 +1505,11 @@ window.addEventListener('message', function(event) {{
         for seg in segments:
             dash = "" if seg["sure"] else ' stroke-dasharray="7 5"'
             svg.append(
-                f'<line x1="{seg["x1"]:.1f}" y1="{seg["y1"]:.1f}" x2="{seg["x2"]:.1f}" y2="{seg["y2"]:.1f}" '
+                f'<line class="chart-seg-hit" data-seg-row="{seg["row"]}" x1="{seg["x1"]:.1f}" y1="{seg["y1"]:.1f}" x2="{seg["x2"]:.1f}" y2="{seg["y2"]:.1f}" '
+                f'stroke="transparent" stroke-width="14" stroke-linecap="round"{dash}/>'
+            )
+            svg.append(
+                f'<line class="chart-seg-line" data-seg-row="{seg["row"]}" x1="{seg["x1"]:.1f}" y1="{seg["y1"]:.1f}" x2="{seg["x2"]:.1f}" y2="{seg["y2"]:.1f}" '
                 f'stroke="#69a35f" stroke-width="2.4" opacity=".72" stroke-linecap="round"{dash}/>'
             )
 
@@ -1472,7 +1588,7 @@ window.addEventListener('message', function(event) {{
             "</g>"
         )
         svg.append("</svg>")
-        fx_table, pen_table = self._make_detail_tables(meta, chart_id, label)
+        fx_table, pen_table, seg_table = self._make_detail_tables(meta, chart_id, label)
 
         return f"""
 {fx_table}
@@ -1507,6 +1623,7 @@ window.addEventListener('message', function(event) {{
   </div>
 </div>
 {pen_table}
+{seg_table}
 <script>
 (function() {{
 var eventController = new AbortController();
@@ -1881,6 +1998,25 @@ function focusPen(beginIdx, endIdx) {{
   focusedBand.setAttribute('width', Math.max(barW, endBar.x - beginBar.x + barW).toFixed(1));
   focusedBand.style.display = 'block';
 }}
+function focusRange(beginIdx, endIdx, padBars) {{
+  beginIdx = Math.max(0, Math.min(data.bars.length - 1, Number(beginIdx) || 0));
+  endIdx = Math.max(beginIdx, Math.min(data.bars.length - 1, Number(endIdx) || beginIdx));
+  padBars = Number(padBars) || 28;
+  var beginBar = data.bars[beginIdx], endBar = data.bars[endIdx];
+  var rangeW = Math.max(minViewW, (endBar.x - beginBar.x) + padBars * barW);
+  viewW = Math.min(maxViewW, rangeW);
+  originX = (beginBar.x + endBar.x) * 0.5 - viewW * 0.5;
+  updateViewBox();
+  selected.setAttribute('x1', beginBar.x.toFixed(1));
+  selected.setAttribute('x2', beginBar.x.toFixed(1));
+  selected.style.display = 'block';
+  focused.setAttribute('x1', endBar.x.toFixed(1));
+  focused.setAttribute('x2', endBar.x.toFixed(1));
+  focused.style.display = 'block';
+  focusedBand.setAttribute('x', (beginBar.x - barW / 2).toFixed(1));
+  focusedBand.setAttribute('width', Math.max(barW, endBar.x - beginBar.x + barW).toFixed(1));
+  focusedBand.style.display = 'block';
+}}
 function findBarByTime(value) {{
   value = String(value || '').trim();
   if (!value) return -1;
@@ -1908,6 +2044,7 @@ function highlightPenRow(rowId) {{
   var tableWrap = document.getElementById('pen-table-{chart_id}');
   if (!row || !tableWrap) return;
   panelRoot.querySelectorAll('tr.focused-row').forEach(function(x) {{ x.classList.remove('focused-row'); }});
+  clearSegHighlight();
   panelRoot.querySelectorAll('.chart-pen-line.focused-pen').forEach(function(x) {{
     x.classList.remove('focused-pen');
     x.setAttribute('stroke-width', '1.25');
@@ -1919,6 +2056,34 @@ function highlightPenRow(rowId) {{
     penLine.classList.add('focused-pen');
     penLine.setAttribute('stroke-width', '2.6');
     penLine.setAttribute('opacity', '1');
+  }}
+  tableWrap.style.display = '';
+  tableWrap.scrollTop = Math.max(0, row.offsetTop - tableWrap.clientHeight * 0.42);
+}}
+function clearSegHighlight() {{
+  panelRoot.querySelectorAll('.chart-seg-line.focused-seg').forEach(function(x) {{
+    x.classList.remove('focused-seg');
+    x.setAttribute('stroke-width', '2.4');
+    x.setAttribute('opacity', '.72');
+  }});
+}}
+function highlightSegRow(rowId) {{
+  var row = panelRoot.querySelector('tr[data-seg-row="' + rowId + '"]');
+  var tableWrap = document.getElementById('seg-table-{chart_id}');
+  if (!row || !tableWrap) return;
+  panelRoot.querySelectorAll('tr.focused-row').forEach(function(x) {{ x.classList.remove('focused-row'); }});
+  panelRoot.querySelectorAll('.chart-pen-line.focused-pen').forEach(function(x) {{
+    x.classList.remove('focused-pen');
+    x.setAttribute('stroke-width', '1.25');
+    x.setAttribute('opacity', '.72');
+  }});
+  clearSegHighlight();
+  row.classList.add('focused-row');
+  var segLine = panelRoot.querySelector('.chart-seg-line[data-seg-row="' + rowId + '"]');
+  if (segLine) {{
+    segLine.classList.add('focused-seg');
+    segLine.setAttribute('stroke-width', '4.2');
+    segLine.setAttribute('opacity', '1');
   }}
   tableWrap.style.display = '';
   tableWrap.scrollTop = Math.max(0, row.offsetTop - tableWrap.clientHeight * 0.42);
@@ -1984,7 +2149,7 @@ wrap.addEventListener('wheel', function(e) {{
 }}, {{passive:false}});
 wrap.addEventListener('mousedown', function(e) {{
   if (e.button !== 0) return;
-  if (e.target && e.target.closest && e.target.closest('.chart-price-label,.chart-fractal-marker,.chart-pen-line,.chart-pen-hit')) return;
+  if (e.target && e.target.closest && e.target.closest('.chart-price-label,.chart-fractal-marker,.chart-pen-line,.chart-pen-hit,.chart-seg-line,.chart-seg-hit')) return;
   focusChart();
   isPanning = true; panStartX = e.clientX; panStartY = e.clientY; panOriginX = originX; panOriginY = originY;
   pendingPanOriginX = originX; pendingPanOriginY = originY;
@@ -2036,6 +2201,7 @@ document.getElementById('clear-{chart_id}').addEventListener('click', function()
   panelRoot.querySelectorAll('[data-fx-row].fx-ref-active').forEach(function(node) {{
     node.classList.remove('fx-ref-active');
   }});
+  clearSegHighlight();
 }});
 klineToggle.addEventListener('click', function() {{
   var active = klineLayer.classList.toggle('active');
@@ -2077,8 +2243,25 @@ panelRoot.querySelectorAll('.chart-pen-line[data-pen-row],.chart-pen-hit[data-pe
     highlightPenRow(line.getAttribute('data-pen-row'));
   }});
 }});
+panelRoot.querySelectorAll('.chart-seg-line[data-seg-row],.chart-seg-hit[data-seg-row]').forEach(function(line) {{
+  line.addEventListener('mousedown', function(e) {{
+    e.stopPropagation();
+  }});
+  line.addEventListener('click', function(e) {{
+    e.stopPropagation();
+    var rowId = line.getAttribute('data-seg-row');
+    var row = panelRoot.querySelector('tr[data-seg-row="' + rowId + '"]');
+    highlightSegRow(rowId);
+    if (row) focusRange(row.getAttribute('data-seg-begin'), row.getAttribute('data-seg-end'), 36);
+  }});
+}});
 panelRoot.querySelectorAll('tr[data-target-idx]').forEach(function(row) {{
   row.addEventListener('click', function() {{
+    if (row.hasAttribute('data-seg-row')) {{
+      highlightSegRow(row.getAttribute('data-seg-row'));
+      focusRange(row.getAttribute('data-seg-begin'), row.getAttribute('data-seg-end'), 36);
+      return;
+    }}
     panelRoot.querySelectorAll('tr.focused-row').forEach(function(x) {{ x.classList.remove('focused-row'); }});
     row.classList.add('focused-row');
     focusBar(row.getAttribute('data-target-idx'), false);
@@ -2093,6 +2276,15 @@ panelRoot.querySelectorAll('tr[data-pen-row] .pen-direction-cell').forEach(funct
     row.classList.add('focused-row');
     highlightPenRow(row.getAttribute('data-pen-row'));
     focusPen(row.getAttribute('data-pen-begin'), row.getAttribute('data-pen-end'));
+  }});
+}});
+panelRoot.querySelectorAll('tr[data-seg-row] .seg-direction-cell').forEach(function(cell) {{
+  cell.addEventListener('click', function(e) {{
+    e.stopPropagation();
+    var row = cell.closest('tr[data-seg-row]');
+    if (!row) return;
+    highlightSegRow(row.getAttribute('data-seg-row'));
+    focusRange(row.getAttribute('data-seg-begin'), row.getAttribute('data-seg-end'), 36);
   }});
 }});
 panelRoot.querySelectorAll('.collapse-btn').forEach(function(btn) {{
