@@ -492,7 +492,7 @@ window.addEventListener('message', function(event) {{
     <div class="logic-grid">
       <div class="logic-card">
         <h3>同类分型归并</h3>
-        <p>如果连续出现同类分型，系统会保留极值更强的那个：顶分型优先保留高点更高者，底分型优先保留低点更低者。</p>
+        <p>如果一笔已经成立后又出现同方向更极端分型，系统会尝试更新上一笔终点：顶分型优先更高者，底分型优先更低者。但更新后仍必须用原笔起点和新终点重新校验成笔条件。</p>
       </div>
       <div class="logic-card">
         <h3>顶底必须交替</h3>
@@ -504,7 +504,7 @@ window.addEventListener('message', function(event) {{
       </div>
       <div class="logic-card">
         <h3>区间必须通过验证</h3>
-        <p>当前 <code>bi_fx_check=totally</code>，使用最严格的完全分离检查。它要求两个端点分型的三根合并 K 区间完全错开。</p>
+        <p>当前 <code>bi_fx_check=totally</code>，使用最严格的完全分离检查。它要求两个端点分型的三根合并 K 区间完全错开；即使是成笔后的终点更新，也要用最终起点和新终点复验。终点更新不能借用缺口后反向豁免跳过该检查，区间重合时不能成为有效端点。</p>
       </div>
     </div>
   </section>
@@ -800,8 +800,8 @@ window.addEventListener('message', function(event) {{
                 notes.append({
                     "html": (
                         f'缺口后反向成笔：上一笔为{gap_direction}破格笔，当前笔从该缺口笔终点发起；'
-                        f'缺口区间不作为后续反向分型禁区，因此当前笔豁免 <code>bi_fx_check</code> '
-                        f'三K区间重合限制，但跨度和端点极值仍需通过。'
+                        f'缺口区间只作为背景标记，不再豁免 <code>bi_fx_check</code>；'
+                        f'当前笔仍必须通过最终顶底分型三K区间检查、跨度和端点极值。'
                     )
                 })
             if not bi.is_sure:
@@ -915,6 +915,19 @@ window.addEventListener('message', function(event) {{
                             f'{html.escape(relation)}。'
                         )
                     })
+                endpoint_roles = endpoint_map.get(int(row["klc_idx"]), [])
+                end_pen = next((pen for pen in pen_rows if pen["end_klc_idx"] == row["klc_idx"]), None)
+                if end_pen and any("终点" in role for role in endpoint_roles):
+                    begin_row = row_by_klc_idx.get(end_pen["begin_klc_idx"])
+                    if begin_row:
+                        notes.append({
+                            "html": (
+                                f'最终端点复验：作为第{end_pen["idx"]}笔终点时，必须用该笔起点 '
+                                f'{self._fx_note_ref(begin_row)} 与当前端点重新检查；'
+                                f'{totally_check_html(begin_row, row)}。'
+                                f'终点更新路径不借用缺口后反向豁免。'
+                            )
+                        })
                 if prev_same and prev_same["status"] != "有效":
                     better = row["price"] >= prev_same["price"] if row["kind"] == "top" else row["price"] <= prev_same["price"]
                     if better:

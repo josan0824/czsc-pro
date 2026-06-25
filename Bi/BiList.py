@@ -189,11 +189,10 @@ class CBiList:
 
     def can_make_bi(self, klc: CKLine, last_end: CKLine, for_virtual: bool = False):
         gap_break_info = self.get_gap_break_info(klc, last_end)
-        gap_retrace_info = self.get_gap_retrace_info(klc, last_end, for_virtual=for_virtual)
         satisify_span = True if self.config.bi_algo == 'fx' else self.satisfy_bi_span(klc, last_end)
         if not satisify_span:
             return False
-        if gap_break_info is None and gap_retrace_info is None and not last_end.check_fx_valid(klc, self.config.bi_fx_check, for_virtual):
+        if gap_break_info is None and not last_end.check_fx_valid(klc, self.config.bi_fx_check, for_virtual):
             return False
         if self.config.bi_end_is_peak and not end_is_peak(last_end, klc):
             return False
@@ -217,6 +216,10 @@ class CBiList:
         last_bi = self.bi_list[-1]
         if (last_bi.is_up() and check_top(klc, for_virtual) and klc.high >= last_bi.get_end_val()) or \
            (last_bi.is_down() and check_bottom(klc, for_virtual) and klc.low <= last_bi.get_end_val()):
+            if not self.can_make_bi(klc, last_bi.begin_klc, for_virtual=for_virtual):
+                return False
+            if not last_bi.begin_klc.check_fx_valid(klc, self.config.bi_fx_check, for_virtual):
+                return False
             last_bi.update_virtual_end(klc) if for_virtual else last_bi.update_new_end(klc)
             self.last_end = klc
             return True
