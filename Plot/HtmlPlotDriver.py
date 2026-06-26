@@ -454,6 +454,7 @@ window.addEventListener('message', function(event) {{
     <button class="logic-tab" type="button" data-logic-tab="gap">缺口处理</button>
     <button class="logic-tab" type="button" data-logic-tab="segment">段划分</button>
     <button class="logic-tab" type="button" data-logic-tab="segment-v2">线段v2.0</button>
+    <button class="logic-tab" type="button" data-logic-tab="segment-doubao">线段-豆包</button>
     <button class="logic-tab" type="button" data-logic-tab="report">表格口径</button>
   </div>
   <section class="logic-tab-panel active" data-logic-panel="include">
@@ -705,8 +706,100 @@ window.addEventListener('message', function(event) {{
       <strong>核心原则：</strong>先确认笔，再通过反向笔特征序列判断线段结束；无缺口可直接确认，有缺口需要二次确认；线段只能被线段破坏，复杂走势中要允许中间状态。
     </div>
   </section>
+  <section class="logic-tab-panel" data-logic-panel="segment-doubao">
+    <h2>8. 线段-豆包</h2>
+    <p><code>seg_algo=chan_doubao</code> 是在默认 <code>chan</code> 特征序列线段算法上增加的端点替换实验模式。它不改变前置的包含处理、分型过滤、成笔规则，也不改变特征序列确认主干；只在候选线段终点落定时，加一条“同类型极值不能跨过反向有效笔端点替换”的规则。</p>
+    <div class="logic-grid">
+      <div class="logic-card">
+        <h3>总览</h3>
+        <p>输入仍然是已经确认出来的有效笔列表。系统先按 <code>chan</code> 的方式寻找线段结束证据，再在本次确认窗口内检查候选终点是否允许替换为同方向更极端端点。</p>
+        <p>如果候选终点和后续同方向极值之间已经出现反向有效笔端点，前一个候选终点视为锁定，后续更极端端点不能回头替代它。</p>
+      </div>
+      <div class="logic-card">
+        <h3>当前代码入口</h3>
+        <p>页面选择 <code>线段 doubao</code> 后，配置值会传入 <code>seg_algo=chan_doubao</code>，最终由 <code>CSegListChanDoubao</code> 计算线段。</p>
+        <pre><code>update()
+  do_init()
+  cal_seg_sure()
+  extend_confirmed_seg_extremes()
+  collect_left_seg()</code></pre>
+      </div>
+      <div class="logic-card">
+        <h3>不改变的部分</h3>
+        <p>它不重新定义 K 线包含、顶底分型、成笔、笔缺口、笔列表和中枢计算。线段端点仍然只能取自笔端点，不会直接连到原始 K 线的普通高低点。</p>
+      </div>
+      <div class="logic-card">
+        <h3>核心差异</h3>
+        <p>默认 <code>chan</code> 在特征序列确认后直接使用特征序列峰值笔作为线段终点；<code>chan_doubao</code> 会先用同类型替换规则检查该终点是否可以往后移动，但移动不能跨过反向有效笔。</p>
+      </div>
+    </div>
+    <h3>名字解释</h3>
+    <div class="logic-rule-table">
+      <div><strong>有效笔序列</strong><span>已经通过分型过滤、跨度、区间分离、缺口破格等规则生成的笔列表。线段算法只读取这份笔序列。</span></div>
+      <div><strong>线段</strong><span>由连续笔构成的更高一级结构。线段起点是第一笔的起点，终点是最后一笔的终点；已确认线段至少三笔。</span></div>
+      <div><strong>特征序列</strong><span>判断当前线段是否结束时抽取的反向笔集合。上升段取下降笔作为特征序列；下降段取上升笔作为特征序列。</span></div>
+      <div><strong>特征序列分型</strong><span>特征序列内部形成的顶/底分型。它是默认 <code>chan</code> 判断线段结束的核心证据。</span></div>
+      <div><strong>候选终点</strong><span><code>fx_eigen.GetPeakBiIdx()</code> 给出的峰值笔。它是默认 <code>chan</code> 会尝试作为线段结束点的笔。</span></div>
+      <div><strong>确认窗口</strong><span>从候选终点到确认证据笔 <code>last_evidence_bi</code> 之间的笔区间；如果没有证据笔，则到当前笔列表尾部。</span></div>
+      <div><strong>同类型端点</strong><span>和候选终点方向相同的笔端点。下降终点看更低低点，向上终点看更高高点。</span></div>
+      <div><strong>反向有效笔端点</strong><span>确认窗口内第一根方向不同的有效笔端点。它一旦出现，就表示前一个同类端点已经不能继续被后面的同类极值替换。</span></div>
+      <div><strong>更极端</strong><span>下降笔用 <code>_low()</code> 比较，更低才算更极端；上升笔用 <code>_high()</code> 比较，更高才算更极端。</span></div>
+      <div><strong>锁定</strong><span>两个同类端点之间出现反向有效笔端点后，前一个同类端点固定为当前段终点，不允许后续更低底或更高顶回头替换。</span></div>
+    </div>
+    <h3>完整划分流程</h3>
+    <div class="logic-rule-table">
+      <div><strong>1. 清理尾部</strong><span>每次更新先执行 <code>do_init()</code>。继承自 <code>chan</code> 的逻辑会删除末尾未确认线段；如果最后一个已确认线段依赖的特征序列尾元素仍未确认，也会回退重算。</span></div>
+      <div><strong>2. 确定扫描起点</strong><span>如果当前没有线段，从第 0 笔开始扫描；如果已有确认线段，则从最后一段终点的下一笔开始继续扫描。</span></div>
+      <div><strong>3. 构造特征序列</strong><span>沿笔列表向后扫描。遇到下降笔且当前不在上升段尾部禁用状态时，加入上升段结束用的下降特征序列；遇到上升笔且当前不在下降段尾部禁用状态时，加入下降段结束用的上升特征序列。</span></div>
+      <div><strong>4. 首段方向预判</strong><span>第一段还没有方向时，不是谁先形成分型就立即决定方向。代码会看上升/下降两套特征序列是否已经出现第二个元素，并据此清理另一套临时序列。</span></div>
+      <div><strong>5. 发现特征分型</strong><span>当某套特征序列形成有效特征分型后，进入 <code>treat_fx_eigen()</code>。这一步仍然沿用 <code>chan</code> 的特征序列确认入口。</span></div>
+      <div><strong>6. 判断是否能结束</strong><span>执行 <code>fx_eigen.can_be_end(bi_lst)</code>。返回 <code>True</code> 表示找到正常确认；返回 <code>None</code> 表示扫到尾部也没有新的反向证据，生成未确认或尾部候选；返回其他结果则说明当前分型证据不足，要从特征序列第二元素位置继续扫描。</span></div>
+      <div><strong>7. 取默认候选终点</strong><span>当返回 <code>True</code> 或 <code>None</code> 时，先取 <code>fx_eigen.GetPeakBiIdx()</code> 作为默认候选终点。这一步与默认 <code>chan</code> 一致。</span></div>
+      <div><strong>8. 确定确认窗口</strong><span>如果 <code>fx_eigen</code> 上存在 <code>last_evidence_bi</code>，窗口结束点取该证据笔；否则窗口结束点取当前笔列表最后一笔。</span></div>
+      <div><strong>9. 执行豆包替换</strong><span>从候选终点开始，按同方向笔逐根向后扫描。只要后续同方向端点更极端，就替换候选终点；一旦遇到第一根反向有效笔，立即停止扫描。</span></div>
+      <div><strong>10. 添加新线段</strong><span>用替换后的终点执行 <code>add_new_seg()</code>。如果 <code>can_be_end</code> 返回 <code>True</code> 且特征序列所有笔都确认，则新线段为已确认；否则为未确认。</span></div>
+      <div><strong>11. 递归继续确认</strong><span>如果本次线段已确认，则从新线段终点的下一笔继续调用 <code>cal_seg_sure()</code>，尝试确认后续线段。</span></div>
+      <div><strong>12. 后处理已确认段</strong><span>所有确认流程完成后，执行 <code>extend_confirmed_seg_extremes()</code>。它只检查已确认段和后一段之间是否还有可替换的同方向极值，并且同样不能跨过反向有效笔端点。</span></div>
+      <div><strong>13. 重置被影响区间</strong><span>如果第 12 步确实发生替换，会重置当前段和下一段的起止笔、笔列表、趋势线和中枢列表，再重新检查线段合法性。</span></div>
+      <div><strong>14. 收集剩余尾段</strong><span>最后执行 <code>collect_left_seg()</code>。如果末尾还有未纳入确认线段的笔，会按尾段规则收集为未确认线段；豆包模式的尾段同样使用“遇到反向有效笔就停止”的替换规则。</span></div>
+    </div>
+    <h3>豆包替换规则细节</h3>
+    <div class="logic-grid">
+      <div class="logic-card">
+        <h3>替换函数</h3>
+        <p>核心函数是 <code>_replace_until_opposite_fx()</code>。它要求扫描起点方向必须等于目标方向，否则不替换。</p>
+        <pre><code>candidate = begin_bi
+for bi in begin_next ... window_end:
+  if bi.dir != target_dir:
+    break
+  if bi is more extreme:
+    candidate = bi</code></pre>
+      </div>
+      <div class="logic-card">
+        <h3>为什么遇到反向就停</h3>
+        <p>你的新规则认为：同类型分型之间如果夹了一个反向分型端点，前一个同类端点对应的线段已经被反向结构确认，不能再被后面的同类极值回头改写。</p>
+      </div>
+      <div class="logic-card">
+        <h3>下降段例子</h3>
+        <p>A 顶到 B 底形成候选下降段。如果 B 后面没有反向上笔，且出现更低 C 底，可以把终点替换到 C；如果 B 和 C 中间先出现了反向上笔，则 B 锁定，C 不能替换 B。</p>
+      </div>
+      <div class="logic-card">
+        <h3>上升段例子</h3>
+        <p>A 底到 B 顶形成候选上升段。如果 B 后面没有反向下笔，且出现更高 C 顶，可以把终点替换到 C；如果中间先出现了反向下笔，则 B 锁定。</p>
+      </div>
+    </div>
+    <h3>边界与注意事项</h3>
+    <div class="logic-rule-table">
+      <div><strong>旧模式不变</strong><span>只有选择 <code>chan_doubao</code> 时使用本规则。<code>chan</code>、<code>chan_v2</code>、<code>1+1</code>、<code>break</code> 的计算入口不受影响。</span></div>
+      <div><strong>不能跨笔端点</strong><span>本规则只看有效笔端点方向，不直接读取原始 K 线内部的普通高低点；未成为有效笔端点的分型不会直接改变线段终点。</span></div>
+      <div><strong>不能跨反向端点</strong><span>这是当前豆包模式最重要的限制。即使后面同方向端点更极端，只要中间出现过反向有效笔端点，就不能替换。</span></div>
+      <div><strong>确认逻辑仍归 chan</strong><span>线段是否结束，仍由特征序列分型和 <code>can_be_end()</code> 决定；豆包规则只负责在可结束窗口内选择更合适的线段终点。</span></div>
+      <div><strong>未确认尾段可能变化</strong><span>最后一段如果状态是未确认，后续新笔仍可能导致它被删除、重算或改写；已确认段只会在后处理窗口内按上述规则有限调整。</span></div>
+      <div><strong>输出更保守</strong><span>相比“直接在窗口内取最高/最低”的方案，当前规则更保守。因为有效笔通常顶底交替，反向端点会很快锁定前一个同类端点。</span></div>
+    </div>
+  </section>
   <section class="logic-tab-panel" data-logic-panel="report">
-    <h2>8. 表格与图上标注口径</h2>
+    <h2>9. 表格与图上标注口径</h2>
     <p>报告里的图形和表格是为了复核计算过程，不是额外再跑一套规则。图上的三角形、虚线框、笔线和表格行都来自同一份分型与笔数据。</p>
     <h3>线段算法参数对比</h3>
     <p>页面上方的 <code>seg_algo</code> 会影响线段、线段中枢、线段买卖点以及图上的段线。分型列表和笔列表仍由前置分型/成笔逻辑生成，但段相关标注会按所选算法重新计算。</p>
