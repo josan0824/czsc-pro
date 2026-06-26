@@ -455,6 +455,7 @@ window.addEventListener('message', function(event) {{
     <button class="logic-tab" type="button" data-logic-tab="segment">段划分</button>
     <button class="logic-tab" type="button" data-logic-tab="segment-v2">线段v2.0</button>
     <button class="logic-tab" type="button" data-logic-tab="segment-doubao">线段-豆包</button>
+    <button class="logic-tab" type="button" data-logic-tab="segment-doubao2">线段-豆包2</button>
     <button class="logic-tab" type="button" data-logic-tab="report">表格口径</button>
   </div>
   <section class="logic-tab-panel active" data-logic-panel="include">
@@ -798,8 +799,55 @@ for bi in begin_next ... window_end:
       <div><strong>输出更保守</strong><span>相比“直接在窗口内取最高/最低”的方案，当前规则更保守。因为有效笔通常顶底交替，反向端点会很快锁定前一个同类端点。</span></div>
     </div>
   </section>
+  <section class="logic-tab-panel" data-logic-panel="segment-doubao2">
+    <h2>9. 线段-豆包2</h2>
+    <p><code>seg_algo=chan_doubao2</code> 按 <code>docs/豆包生成规则.doc</code> 的执行流程实现，是一套独立于 <code>chan_doubao</code> 端点替换模式的线段划分算法。它仍然只读取已经生成的有效笔列表，但完整重走特征序列包含、缺口确认和反向线段校验。</p>
+    <div class="logic-grid">
+      <div class="logic-card">
+        <h3>当前代码入口</h3>
+        <p>页面选择 <code>线段 doubao2</code> 后，配置值会传入 <code>seg_algo=chan_doubao2</code>，最终由 <code>CSegListChanDoubao2</code> 计算线段。</p>
+        <pre><code>update()
+  do_init()
+  cal_bi_sure()
+  collect_left_seg()</code></pre>
+      </div>
+      <div class="logic-card">
+        <h3>线段门槛</h3>
+        <p>确认段至少需要三笔。相邻线段方向严格交替，后一线段从前一线段终点后一笔开始延续；剩余不足确认条件的走势交给尾段收集逻辑生成未确认段。</p>
+      </div>
+      <div class="logic-card">
+        <h3>特征序列</h3>
+        <p>判断向上线段是否结束时收集下降笔；判断向下线段是否结束时收集上升笔。未确认结束前，右侧走势仍先归入当前线段的扫描窗口。</p>
+      </div>
+      <div class="logic-card">
+        <h3>线段破坏</h3>
+        <p>单笔反向冲击不能直接确认原线段终结。算法必须从候选终点后一笔开始看到三笔交替且前三笔价格区间重叠，才认为反向线段成立。</p>
+      </div>
+    </div>
+    <h3>包含处理</h3>
+    <div class="logic-rule-table">
+      <div><strong>第 1、2 元素</strong><span>仅允许左包右合并，禁止右包左合并，用来保留顶底两侧特征序列的原始关系。</span></div>
+      <div><strong>第 2 元素之后</strong><span>左包右、右包左都允许合并，处理顺序从左到右。</span></div>
+      <div><strong>向上线段</strong><span>特征序列是下降笔，包含合并取“低低”：高点取较小值，低点也取较小值。</span></div>
+      <div><strong>向下线段</strong><span>特征序列是上升笔，包含合并取“高高”：高点取较大值，低点也取较大值。</span></div>
+    </div>
+    <h3>确认流程</h3>
+    <div class="logic-rule-table">
+      <div><strong>1. 起段</strong><span>从当前未归属的第一笔开始，线段方向取该笔方向。</span></div>
+      <div><strong>2. 收集特征</strong><span>向后遍历笔列表，只把反向笔加入当前线段的特征序列。</span></div>
+      <div><strong>3. 合并特征</strong><span>每加入新特征元素后，按豆包2包含规则重新得到合并后的特征序列。</span></div>
+      <div><strong>4. 判断分型</strong><span>向上线段要求特征序列形成顶分型；向下线段要求特征序列形成底分型。</span></div>
+      <div><strong>5. 无缺口</strong><span>第 1、2 特征元素无价格缺口时，分型只是必要条件；还要校验候选终点后是否走出完整反向三笔线段。</span></div>
+      <div><strong>6. 有缺口</strong><span>第一组分型只作为预警，不能直接终结原线段；后续再出现一组特征分型，并且预警终点后反向三笔成立，才确认原线段结束。</span></div>
+      <div><strong>7. 生成线段</strong><span>确认后生成当前段，并从确认终点后一笔继续扫描下一段。</span></div>
+      <div><strong>8. 收尾</strong><span>如果后续无法确认新段，则保留已有确认段，再由通用尾段逻辑收集最后未确认走势。</span></div>
+    </div>
+    <div class="logic-example">
+      <strong>实现口径：</strong><code>chan_doubao2</code> 不是 <code>chan_doubao</code> 的小改版；它按文档伪代码把“缺口预警 + 二次确认 + 反向三笔重叠”作为核心确认链路。
+    </div>
+  </section>
   <section class="logic-tab-panel" data-logic-panel="report">
-    <h2>9. 表格与图上标注口径</h2>
+    <h2>10. 表格与图上标注口径</h2>
     <p>报告里的图形和表格是为了复核计算过程，不是额外再跑一套规则。图上的三角形、虚线框、笔线和表格行都来自同一份分型与笔数据。</p>
     <h3>线段算法参数对比</h3>
     <p>页面上方的 <code>seg_algo</code> 会影响线段、线段中枢、线段买卖点以及图上的段线。分型列表和笔列表仍由前置分型/成笔逻辑生成，但段相关标注会按所选算法重新计算。</p>
@@ -839,6 +887,14 @@ for bi in begin_next ... window_end:
             <td>确认段的缺口和特征序列确认逻辑不变；一旦两个同类端点之间出现反向分型端点，前一个同类端点即视为锁定，后续更极端端点不再回头替换它。</td>
             <td>适合观察主跌/主升过程中，未被反向分型打断的同类极值是否应继续延伸。</td>
             <td>输出会比直接取窗口最高/最低更保守；同类型极值不能跨过中间反向分型端点做替换，适合与 <code>chan</code> 对照使用。</td>
+          </tr>
+          <tr>
+            <td><code>chan_doubao2</code></td>
+            <td>按豆包生成规则文档实现的独立划分算法。</td>
+            <td>从当前起始笔确定线段方向，收集反向笔作为特征序列；按第 1、2 元素仅左包右、第 2 元素后双向包含的规则合并，再用顶/底分型判断候选结束。</td>
+            <td>无缺口时，分型后仍需反向三笔交替且价格重叠来确认；有缺口时，第一组分型只预警，等待第二组分型和反向线段成立后再确认。</td>
+            <td>适合专门对照 <code>docs/豆包生成规则.doc</code> 的伪代码结果，观察缺口预警、二次确认和反向线段破坏对段线的影响。</td>
+            <td>这是文档规则实验实现，结果可能和 <code>chan</code>/<code>chan_v2</code>/<code>chan_doubao</code> 都不同；下游线段中枢和买卖点会跟随重算。</td>
           </tr>
           <tr>
             <td><code>1+1</code></td>
