@@ -29,6 +29,9 @@ def get_seglist_instance(seg_config: CSegConfig, lv) -> CSegListComm:
     elif seg_config.seg_algo == "chan_doubao2":
         from Seg.SegListChanDoubao2 import CSegListChanDoubao2
         return CSegListChanDoubao2(seg_config, lv)
+    elif seg_config.seg_algo == "chan_doubao3":
+        from Seg.SegListChanDoubao3 import CSegListChanDoubao3
+        return CSegListChanDoubao3(seg_config, lv)
     elif seg_config.seg_algo == "1+1":
         print(f'Please avoid using seg_algo={seg_config.seg_algo} as it is deprecated and no longer maintained.')
         from Seg.SegListDYH import CSegListDYH

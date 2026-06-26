@@ -148,6 +148,10 @@ SEG_ALGO_OPTIONS = {
     "doubao": "chan_doubao",
     "chan_doubao2": "chan_doubao2",
     "doubao2": "chan_doubao2",
+    "chan_doubao3": "chan_doubao3",
+    "doubao3": "chan_doubao3",
+    "douban_v3": "chan_doubao3",
+    "doubao_v3": "chan_doubao3",
     "1+1": "1+1",
     "break": "break",
 }
@@ -652,6 +656,7 @@ iframe {{
           <option value="chan_v2">线段 v2.0</option>
           <option value="chan_doubao">线段 doubao</option>
           <option value="chan_doubao2">线段 doubao2</option>
+          <option value="chan_doubao3">线段 doubao3</option>
           <option value="1+1">线段 1+1</option>
           <option value="break">线段 break</option>
         </select>

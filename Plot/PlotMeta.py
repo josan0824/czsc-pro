@@ -85,6 +85,22 @@ class CSeg_meta:
         return tl_x0, tl_y0, tl_x1, tl_y1
 
 
+class CDisplaySeg_meta:
+    def __init__(self, seg: dict):
+        self.begin_bi_idx = seg["begin_bi_idx"]
+        self.end_bi_idx = seg["end_bi_idx"]
+        self.begin_x = seg["begin_x"]
+        self.begin_y = seg["begin_y"]
+        self.end_x = seg["end_x"]
+        self.end_y = seg["end_y"]
+        self.dir = seg["dir"]
+        self.is_sure = seg["is_sure"]
+        self.idx = seg["idx"]
+        self.display_only = True
+
+        self.tl = {}
+
+
 class CEigen_meta:
     def __init__(self, eigen: CEigen):
         self.begin_x = eigen.lst[0].get_begin_klu().idx
@@ -144,8 +160,13 @@ class CChanPlotMeta:
 
         self.seg_list: List[CSeg_meta] = []
         self.eigenfx_lst: List[CEigenFX_meta] = []
+        display_segments = getattr(kl_list.seg_list, "display_segments", None)
+        if display_segments:
+            self.seg_list = [CDisplaySeg_meta(seg) for seg in display_segments]
+        else:
+            for seg in kl_list.seg_list:
+                self.seg_list.append(CSeg_meta(seg))
         for seg in kl_list.seg_list:
-            self.seg_list.append(CSeg_meta(seg))
             if seg.eigen_fx:
                 self.eigenfx_lst.append(CEigenFX_meta(seg.eigen_fx))
 

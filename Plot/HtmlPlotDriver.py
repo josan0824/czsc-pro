@@ -147,13 +147,13 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
   border:1px solid #263244; border-radius:6px; background:#111827; touch-action:none;
 }}
 .chan-chart-svg {{ width:100%; height:100%; display:block; background:#111827; cursor:grab; }}
-.chan-chart-svg line,.chan-chart-svg rect,.chan-chart-svg polygon,.chan-chart-svg text {{
+.chan-chart-svg line,.chan-chart-svg rect,.chan-chart-svg polygon,.chan-chart-svg circle,.chan-chart-svg text {{
   pointer-events:none;
 }}
 .chan-chart-svg text {{
   paint-order:stroke; stroke:#111827; stroke-width:3px; stroke-linejoin:round;
 }}
-.chan-chart-svg line,.chan-chart-svg rect,.chan-chart-svg polygon {{
+.chan-chart-svg line,.chan-chart-svg rect,.chan-chart-svg polygon,.chan-chart-svg circle {{
   vector-effect:non-scaling-stroke;
 }}
 .ma-layer {{ display:none; }}
@@ -456,6 +456,7 @@ window.addEventListener('message', function(event) {{
     <button class="logic-tab" type="button" data-logic-tab="segment-v2">线段v2.0</button>
     <button class="logic-tab" type="button" data-logic-tab="segment-doubao">线段-豆包</button>
     <button class="logic-tab" type="button" data-logic-tab="segment-doubao2">线段-豆包2</button>
+    <button class="logic-tab" type="button" data-logic-tab="segment-doubao3">线段-豆包3</button>
     <button class="logic-tab" type="button" data-logic-tab="report">表格口径</button>
   </div>
   <section class="logic-tab-panel active" data-logic-panel="include">
@@ -640,71 +641,130 @@ window.addEventListener('message', function(event) {{
   </section>
   <section class="logic-tab-panel" data-logic-panel="segment-v2">
     <h2>7. 线段v2.0</h2>
-    <p>本节按 <code>docs/第二讲 笔与线段.pdf</code> 的线段口径展示。线段v2.0 仍然基于已确认笔序列，不直接从原始 K 线或分型生成；它重点补充特征序列、缺口确认、线段破坏和复杂中间状态。</p>
+    <p>本节说明页面选择 <code>seg_algo=chan_v2</code> 时，线段是怎样从笔列表一步一步画出来的。线段v2.0 不直接读取原始 K 线高低点，也不跳过笔去连接普通分型；它的输入是已经生成的有效笔序列，核心证据是“当前疑似线段里的反向笔组成的特征序列”。</p>
     <div class="logic-grid">
       <div class="logic-card">
-        <h3>线段定义</h3>
-        <p>线段至少由三笔构成，相邻两笔方向相反。向上线段从底开始到顶结束；向下线段从顶开始到底结束。</p>
+        <h3>当前代码入口</h3>
+        <p>页面下拉选择 <code>线段 v2.0</code> 后，服务端传入 <code>seg_algo=chan_v2</code>，最终由 <code>CSegListChanV2</code> 计算。</p>
+        <pre><code>update()
+  do_init()
+  cal_seg_sure()
+    CEigenFXV2.add()
+    treat_fx_eigen()
+  collect_left_seg()</code></pre>
       </div>
       <div class="logic-card">
-        <h3>首尾衔接</h3>
-        <p>后一线段的开始位置必须是前一线段的结束位置。线段之间不能断开，也不能绕过中间笔重新起段。</p>
+        <h3>输入是什么</h3>
+        <p>输入是笔列表，也就是图上的灰白笔线。笔已经完成 K 线包含、顶底分型识别、成笔过滤、缺口破格等前置步骤。线段v2.0 不会重新做这些前置判断。</p>
       </div>
       <div class="logic-card">
-        <h3>反向笔序列</h3>
-        <p>判断上涨线段是否结束，要看其中的下跌笔组成的特征序列；判断下跌线段是否结束，要看其中的上涨笔组成的特征序列。</p>
+        <h3>输出是什么</h3>
+        <p>输出是图上的粗段线和线段列表。线段起点、终点都取自笔端点；确认段用实线，尾部证据不足的段用虚线或未确认状态显示。</p>
       </div>
       <div class="logic-card">
-        <h3>线段状态</h3>
-        <p>展示时建议区分已确认线段、未确认线段、缺口待确认、中间状态、疑似破坏、破坏确认和原线段延续。</p>
+        <h3>最小门槛</h3>
+        <p>一条确认线段至少要覆盖三笔，并且起止方向、起止价格要符合上升段或下降段的基本方向约束。不满足时，即使临时收集成段，也会标为未确认。</p>
       </div>
     </div>
+    <h3>名词定义</h3>
     <div class="logic-rule-table">
-      <div><strong>上涨结束</strong><span>取上涨线段中的下跌笔作为特征序列；若该序列形成有效顶分型，才具备结束上涨线段的条件。</span></div>
-      <div><strong>下跌结束</strong><span>取下跌线段中的上涨笔作为特征序列；若该序列形成有效底分型，才具备结束下跌线段的条件。</span></div>
+      <div><strong>笔</strong><span>由有效顶底分型连接出来的基础走势单元。页面上灰白细线就是笔。</span></div>
+      <div><strong>线段</strong><span>由连续笔组成的更高一级走势单元。页面上粗线就是线段，表格中会列出起止笔、起止价格、笔数和状态。</span></div>
+      <div><strong>向上线段</strong><span>从底部笔端点开始，向上推进到顶部笔端点。它是否结束，要观察其中的下降笔。</span></div>
+      <div><strong>向下线段</strong><span>从顶部笔端点开始，向下推进到底部笔端点。它是否结束，要观察其中的上升笔。</span></div>
+      <div><strong>特征序列</strong><span>判断当前线段是否结束时抽取的一组反向笔。上升段取下降笔，下降段取上升笔。</span></div>
+      <div><strong>特征序列元素</strong><span>特征序列里的一项，通常对应一根反向笔，包含高点、低点、对应笔索引和确认状态。</span></div>
+      <div><strong>特征序列分型</strong><span>特征序列内部三元素形成的顶/底结构。它不是原始 K 线分型，而是“反向笔序列”上的分型。</span></div>
+      <div><strong>缺口</strong><span>特征序列分型中，中间元素和前一元素之间出现价格断层。缺口会改变线段结束的确认路径。</span></div>
+      <div><strong>确认线段</strong><span>证据充分、可作为后续中枢和买卖点计算依据的线段。表格状态显示为“有效”。</span></div>
+      <div><strong>未确认线段</strong><span>尾部走势已经形成候选段，但证据仍可能被后续新笔改写。表格状态显示为“未确认”。</span></div>
     </div>
+    <h3>方向与特征序列</h3>
     <div class="logic-grid">
       <div class="logic-card">
-        <h3>特征序列包含</h3>
-        <p>特征序列内部也要做包含处理，避免局部重叠造成误判。但第一元素和第二元素之间是否存在缺口，会决定后续确认路径，不能简单忽略。</p>
+        <h3>上升段怎么判断结束</h3>
+        <p>假设当前线段向上，笔序列可以抽象成 <code>U1, D2, U3, D4, U5, D6...</code>。系统取 <code>D2, D4, D6...</code> 作为特征序列。只有这些下降笔在特征序列里形成有效顶分型，才具备结束上升段的条件。</p>
       </div>
       <div class="logic-card">
-        <h3>无缺口确认</h3>
-        <p>若特征序列第一元素和第二元素之间没有缺口，经过包含处理后形成有效分型，则可以确认上一线段结束。</p>
+        <h3>下降段怎么判断结束</h3>
+        <p>假设当前线段向下，笔序列可以抽象成 <code>D1, U2, D3, U4, D5, U6...</code>。系统取 <code>U2, U4, U6...</code> 作为特征序列。只有这些上升笔在特征序列里形成有效底分型，才具备结束下降段的条件。</p>
       </div>
       <div class="logic-card">
-        <h3>有缺口确认</h3>
-        <p>若第一元素和第二元素之间存在缺口，不能仅凭当前特征序列分型确认线段结束，需要等待后续走势形成反向确认。</p>
+        <h3>为什么看反向笔</h3>
+        <p>线段结束本质上是原方向被反向结构破坏。上升段要看下跌笔是否形成足够强的反向结构；下降段要看上升笔是否形成足够强的反向结构。</p>
       </div>
       <div class="logic-card">
-        <h3>二次确认</h3>
-        <p>有缺口时，线段终点先进入待确认状态；只有后续反向分型或补充结构成立，才把上一线段结束点落定。</p>
+        <h3>图上怎么核对</h3>
+        <p>打开图表上的“特征”按钮，会显示特征序列框。红色/蓝色框对应不同方向的特征序列元素，你可以对照线段列表查看是哪几笔触发了结束确认。</p>
       </div>
     </div>
+    <h3>包含处理</h3>
     <div class="logic-rule-table">
-      <div><strong>线段破坏</strong><span>线段不能被单独一笔简单破坏，必须由另一条线段破坏。单笔突破关键高低点后，还要看后续是否形成完整反向线段。</span></div>
-      <div><strong>中间状态</strong><span>若某一笔力度很大，后续多笔仍在该笔范围内震荡，既不能确认原线段结束，也不能确认新线段开始，应保持中间状态。</span></div>
+      <div><strong>为什么要包含处理</strong><span>特征序列元素之间可能互相包含。如果不处理，局部重叠会制造假分型或抹掉真实缺口。</span></div>
+      <div><strong>v2.0 的核心差异</strong><span><code>CEigenFXV2</code> 对第一、第二特征元素不先做普通包含合并，而是先保留它们的相对关系，尤其保留缺口/无缺口判断。</span></div>
+      <div><strong>默认 chan 的差异</strong><span>默认 <code>chan</code> 会更早尝试合并第一、第二特征元素；这可能提前抹掉 v2.0 很关心的缺口关系。</span></div>
+      <div><strong>重置机制</strong><span>如果第二元素出现后发现前两个元素不可能形成有效分型，算法会从后一批特征元素重新开始扫描，而不是硬凑线段。</span></div>
     </div>
+    <h3>完整确认流程</h3>
+    <div class="logic-rule-table">
+      <div><strong>1. 清理尾部</strong><span>每次重算先删除末尾未确认线段；如果最后确认段依赖的特征序列尾元素仍未确认，也会回退，避免用过期证据画段。</span></div>
+      <div><strong>2. 确定扫描起点</strong><span>没有线段时从第 0 笔开始；已有确认段时，从最后一段终点后一笔开始继续扫描。</span></div>
+      <div><strong>3. 同时观察两套序列</strong><span>首段方向未定时，会同时维护“上升段结束用的下降特征序列”和“下降段结束用的上升特征序列”。</span></div>
+      <div><strong>4. 首段方向预判</strong><span>不是谁先出分型就立即定方向，而是等某一侧已经出现第二特征元素后，结合当前笔方向排除另一侧，降低首段误判。</span></div>
+      <div><strong>5. 收集特征元素</strong><span>遇到与当前疑似线段方向相反的笔，就加入对应特征序列。上升候选段收下降笔，下降候选段收上升笔。</span></div>
+      <div><strong>6. 形成三元素</strong><span>特征序列至少需要三组元素，才可能判断顶/底分型。少于三组时不会确认线段结束。</span></div>
+      <div><strong>7. 判断特征分型</strong><span>上升段结束看下降特征序列顶分型；下降段结束看上升特征序列底分型。</span></div>
+      <div><strong>8. 判断缺口</strong><span>分型中间元素和前一元素之间如果有缺口，不能立即确认，需要进入二次确认路径。</span></div>
+      <div><strong>9. 无缺口路径</strong><span>无缺口且实际突破条件成立时，分型峰值笔可作为线段候选终点，进入添加线段流程。</span></div>
+      <div><strong>10. 有缺口路径</strong><span>有缺口时，算法继续向后寻找反向特征序列分型。只有后续反向证据成立，才确认前一线段结束。</span></div>
+      <div><strong>11. 添加线段</strong><span>候选终点通过 <code>add_new_seg()</code> 写入线段列表。若特征序列和证据笔都确认，则线段为有效；否则为未确认。</span></div>
+      <div><strong>12. 递归继续</strong><span>如果本次线段确认成立，就从新线段终点后一笔继续扫描下一段，直到没有足够证据。</span></div>
+      <div><strong>13. 收集尾段</strong><span>剩余走势不够确认新段时，通用尾段逻辑会收集为未确认线段，让图上能看到当前候选走势。</span></div>
+    </div>
+    <h3>缺口确认</h3>
     <div class="logic-grid">
       <div class="logic-card">
-        <h3>复杂情况一</h3>
-        <p>后一组特征序列因包含关系导致分型不成立时，不强行确认新线段，继续等待有效分型。</p>
+        <h3>无缺口例子</h3>
+        <p>上升段中，下降特征序列为 <code>D2, D4, D6</code>。若 <code>D4</code> 构成顶分型，且 <code>D2</code> 与 <code>D4</code> 之间没有缺口，系统可以把上升段终点落在 <code>D4</code> 对应的峰值笔附近。</p>
       </div>
       <div class="logic-card">
-        <h3>复杂情况二</h3>
-        <p>强力一笔破坏原线段后，如果后续仍在该笔范围内震荡，可能只是原线段延续，不立即划出新段。</p>
+        <h3>有缺口例子</h3>
+        <p>仍以上升段为例，若 <code>D4</code> 与 <code>D2</code> 之间跳空，当前顶分型只表示“可能结束”。系统继续看后续走势中是否出现反向确认，而不是立刻画出确认段。</p>
       </div>
       <div class="logic-card">
-        <h3>复杂情况三</h3>
-        <p>后续创新高或新低后，可能才反向确认前一线段结束；确认点以最终有效特征序列为准。</p>
+        <h3>为什么缺口不能忽略</h3>
+        <p>缺口表示特征序列第一、第二元素之间并没有正常重叠过渡。它可能只是走势过快造成的中间状态，必须等待后续证据确认是否真的破坏原线段。</p>
       </div>
       <div class="logic-card">
-        <h3>融合口径</h3>
-        <p>当前系统的“段划分”展示当前页面所选 <code>seg_algo</code> 的实际输出；线段v2.0 既是文档规则口径，也可通过页面上方选择 <code>chan_v2</code> 参与实盘重算。</p>
+        <h3>代码里的体现</h3>
+        <p><code>CEigenFX.can_be_end()</code> 会检查特征序列缺口。无缺口可直接返回确认；有缺口时会进入后续反向分型查找逻辑。</p>
       </div>
+    </div>
+    <h3>复杂场景举例</h3>
+    <div class="logic-rule-table">
+      <div><strong>例 1：不足三笔</strong><span>只有 <code>U1, D2</code> 时不能构成线段。图上最多是笔，或者尾部候选，不应当出现确认段。</span></div>
+      <div><strong>例 2：三笔但无重叠</strong><span><code>U1, D2, U3</code> 虽然有三笔，但前三笔价格区间没有重叠时，反向线段证据不足，不能确认破坏。</span></div>
+      <div><strong>例 3：包含导致分型消失</strong><span><code>D2, D4, D6</code> 看起来像顶分型，但经过特征序列包含处理后，中间元素被合并或结构改变，则不能确认上升段结束。</span></div>
+      <div><strong>例 4：无缺口标准确认</strong><span>下降特征序列形成顶分型，第一、第二元素无缺口，且实际突破条件成立，上升段可确认结束。</span></div>
+      <div><strong>例 5：有缺口待确认</strong><span>下降特征序列形成顶分型，但第一、第二元素有缺口，此时只进入待确认，图上后续段可能仍是未确认状态。</span></div>
+      <div><strong>例 6：笔破坏但线段未破坏</strong><span>一根反向笔跌破上升段内部低点，但后续没有走出完整反向线段，不能单靠这一笔终结原线段。</span></div>
+      <div><strong>例 7：强反向后震荡</strong><span>大阴线后多笔都在该阴线范围内震荡，特征序列无法形成有效分型，原线段继续延伸或只显示未确认尾段。</span></div>
+      <div><strong>例 8：后续创新高</strong><span>上升段疑似被破坏后，价格又突破原高点，说明此前反向结构证据不足，中间走势可能被视为原上升段内部波动。</span></div>
+      <div><strong>例 9：缺口后反向确认</strong><span>有缺口分型先出现，后面又形成反向特征序列分型，才把原线段终点落定到前面的候选位置。</span></div>
+      <div><strong>例 10：尾部未确认</strong><span>最后几笔已经像新段，但证据不足。线段表会显示“未确认”，后续新 K 线可能让这段延长、删除或改写方向。</span></div>
+    </div>
+    <h3>如何判断图上是不是按这个规则画的</h3>
+    <div class="logic-rule-table">
+      <div><strong>第一步</strong><span>先看笔列表。线段只能由这些有效笔组成，不能跨过笔直接连接 K 线高低点。</span></div>
+      <div><strong>第二步</strong><span>在线段列表里找到某一段的起止笔，确认它至少覆盖三笔，方向和起止价格符合上升/下降段。</span></div>
+      <div><strong>第三步</strong><span>打开“特征”按钮，看该段结束前的反向笔是否组成了三组特征序列元素。</span></div>
+      <div><strong>第四步</strong><span>检查特征序列是否形成顶/底分型。上升段结束看下降特征序列顶分型，下降段结束看上升特征序列底分型。</span></div>
+      <div><strong>第五步</strong><span>检查第一、第二特征元素之间是否有缺口。有缺口时，不能只凭当前分型确认，要看后续反向确认。</span></div>
+      <div><strong>第六步</strong><span>看线段状态。有效段表示证据已确认；未确认段表示只是尾部候选，后续行情可能改写。</span></div>
+      <div><strong>第七步</strong><span>如果同一批笔在 <code>chan</code> 和 <code>chan_v2</code> 下画法不同，重点检查第一、第二特征元素是否被合并，以及缺口是否被保留下来。</span></div>
     </div>
     <div class="logic-example">
-      <strong>核心原则：</strong>先确认笔，再通过反向笔特征序列判断线段结束；无缺口可直接确认，有缺口需要二次确认；线段只能被线段破坏，复杂走势中要允许中间状态。
+      <strong>一句话复核：</strong>线段v2.0 先以有效笔为原料，再抽取当前线段的反向笔组成特征序列；特征序列形成有效分型且缺口确认路径通过后，才把线段终点画出来。证据不足时，图上只应出现未确认尾段，而不是确认段。
     </div>
   </section>
   <section class="logic-tab-panel" data-logic-panel="segment-doubao">
@@ -846,8 +906,49 @@ for bi in begin_next ... window_end:
       <strong>实现口径：</strong><code>chan_doubao2</code> 不是 <code>chan_doubao</code> 的小改版；它按文档伪代码把“缺口预警 + 二次确认 + 反向三笔重叠”作为核心确认链路。
     </div>
   </section>
+  <section class="logic-tab-panel" data-logic-panel="segment-doubao3">
+    <h2>10. 线段-豆包3</h2>
+    <p><code>seg_algo=chan_doubao3</code> 按 <code>docs/新豆包规则 和代码.doc</code> 的 TypeScript 流程实现。它是独立算法，不覆盖 <code>chan_doubao2</code>；页面参数也支持 <code>doubao3</code>、<code>doubao_v3</code> 和 <code>douban_v3</code> 别名。</p>
+    <div class="logic-grid">
+      <div class="logic-card">
+        <h3>当前代码入口</h3>
+        <p>选择 <code>线段 doubao3</code> 后，配置值进入 <code>CSegListChanDoubao3</code>。算法先按新文档生成计划线段，再映射成项目可承载的 <code>CSeg</code>。</p>
+        <pre><code>update()
+  do_init()
+  _compute_plan()
+  _merge_same_direction()
+  _apply_plan()</code></pre>
+      </div>
+      <div class="logic-card">
+        <h3>分型方向</h3>
+        <p>向上线段的特征序列是下降笔，寻找底分型；向下线段的特征序列是上升笔，寻找顶分型。这一点和旧 <code>chan_doubao2</code> 不同。</p>
+      </div>
+      <div class="logic-card">
+        <h3>第 1、2 元素</h3>
+        <p>第 1、2 特征元素只允许左包右。若右包左，不合并也不追加右侧元素，继续保留第 1 个元素参与后续判断。</p>
+      </div>
+      <div class="logic-card">
+        <h3>端点适配</h3>
+        <p>新文档模型允许相邻线段共享同一笔端点。项目内部线段必须连续分段，因此实现会把文档端点映射到上一段的 <code>endpoint - 1</code>，下一段从文档端点开始。</p>
+      </div>
+    </div>
+    <h3>确认流程</h3>
+    <div class="logic-rule-table">
+      <div><strong>1. 构造特征序列</strong><span>从当前搜索起点到笔列表末尾，抽取当前线段反向笔作为特征元素。</span></div>
+      <div><strong>2. 包含处理</strong><span>第 1、2 元素仅左包右；第 2 元素之后双向合并。向上线段取低低，向下线段取高高。</span></div>
+      <div><strong>3. 找第一分型</strong><span>处理后的特征序列里取第一组有效分型。向上线段找底分型，向下线段找顶分型。</span></div>
+      <div><strong>4. 无缺口</strong><span>第一分型无缺口时，先认为当前线段终结，终结类型记为 <code>doubao3_no_gap</code>。</span></div>
+      <div><strong>5. 有缺口</strong><span>第一分型有缺口时，从该分型后一笔开始构建反向线段的特征序列；若反向序列出现分型，原线段才确认终结，终结类型记为 <code>doubao3_with_gap</code>。</span></div>
+      <div><strong>6. 反向确认</strong><span>生成当前计划线段后，再检查文档端点开始是否存在三笔交替且前三笔价格区间重叠。若不成立，则停止继续向后划分。</span></div>
+      <div><strong>7. 尾段</strong><span>特征元素不足、包含后不足、找不到分型或有缺口无法确认时，剩余部分生成未确认尾段，原因记为 <code>doubao3_initial</code>。</span></div>
+      <div><strong>8. 同向合并</strong><span>计划线段生成后，如果出现连续同方向线段，会按新文档流程先合并再写入项目线段列表。</span></div>
+    </div>
+    <div class="logic-example">
+      <strong>核心区别：</strong><code>chan_doubao3</code> 按新文档规则执行；它和 <code>chan_doubao2</code> 的主要差异在分型方向、第 1/2 元素包含处理、无缺口先终结后确认、以及同向线段后处理合并。
+    </div>
+  </section>
   <section class="logic-tab-panel" data-logic-panel="report">
-    <h2>10. 表格与图上标注口径</h2>
+    <h2>11. 表格与图上标注口径</h2>
     <p>报告里的图形和表格是为了复核计算过程，不是额外再跑一套规则。图上的三角形、虚线框、笔线和表格行都来自同一份分型与笔数据。</p>
     <h3>线段算法参数对比</h3>
     <p>页面上方的 <code>seg_algo</code> 会影响线段、线段中枢、线段买卖点以及图上的段线。分型列表和笔列表仍由前置分型/成笔逻辑生成，但段相关标注会按所选算法重新计算。</p>
@@ -895,6 +996,14 @@ for bi in begin_next ... window_end:
             <td>无缺口时，分型后仍需反向三笔交替且价格重叠来确认；有缺口时，第一组分型只预警，等待第二组分型和反向线段成立后再确认。</td>
             <td>适合专门对照 <code>docs/豆包生成规则.doc</code> 的伪代码结果，观察缺口预警、二次确认和反向线段破坏对段线的影响。</td>
             <td>这是文档规则实验实现，结果可能和 <code>chan</code>/<code>chan_v2</code>/<code>chan_doubao</code> 都不同；下游线段中枢和买卖点会跟随重算。</td>
+          </tr>
+          <tr>
+            <td><code>chan_doubao3</code></td>
+            <td>按新豆包规则文档实现的独立划分算法。</td>
+            <td>按 <code>docs/新豆包规则 和代码.doc</code> 的 TypeScript 流程生成计划线段：向上线段找底分型，向下线段找顶分型；第 1、2 特征元素仅左包右且右包左时保留左元素。</td>
+            <td>无缺口分型先终结当前线段；有缺口时等待反向特征序列出现分型。随后检查文档端点处是否存在反向三笔交替且前三笔价格区间重叠。</td>
+            <td>适合对照新豆包规则，尤其检查它相对 <code>chan_doubao2</code> 在分型方向、包含处理、端点共享和同向合并上的差异。</td>
+            <td>项目内部不支持相邻段共享同一笔端点，因此实现会把文档端点映射成上一段 <code>endpoint - 1</code>、下一段从文档端点开始。</td>
           </tr>
           <tr>
             <td><code>1+1</code></td>
@@ -1472,8 +1581,10 @@ for bi in begin_next ... window_end:
                 "y2": round(yp(seg.end_y), 1),
                 "sure": bool(seg.is_sure),
                 "direction": "up" if seg.end_y >= seg.begin_y else "down",
+                "display": bool(getattr(seg, "display_only", False)),
                 "row": i + 1,
             })
+        display_seg_count = sum(1 for seg in segments if seg["display"])
 
         show_eigen = bool(self.plot_config.get("plot_eigen", False))
         eigen_boxes = []
@@ -1661,14 +1772,24 @@ for bi in begin_next ... window_end:
 
         for seg in segments:
             dash = "" if seg["sure"] else ' stroke-dasharray="7 5"'
+            seg_color = "#2dd4bf" if seg["display"] else "#69a35f"
+            seg_width = "4.6" if seg["display"] else "2.4"
+            seg_opacity = "1" if seg["display"] else ".72"
             svg.append(
-                f'<line class="chart-seg-hit" data-seg-row="{seg["row"]}" x1="{seg["x1"]:.1f}" y1="{seg["y1"]:.1f}" x2="{seg["x2"]:.1f}" y2="{seg["y2"]:.1f}" '
-                f'stroke="transparent" stroke-width="14" stroke-linecap="round"{dash}/>'
+                f'<line class="chart-seg-hit" data-seg-row="{seg["row"]}" data-display-seg="{1 if seg["display"] else 0}" x1="{seg["x1"]:.1f}" y1="{seg["y1"]:.1f}" x2="{seg["x2"]:.1f}" y2="{seg["y2"]:.1f}" '
+                f'stroke="transparent" stroke-width="18" stroke-linecap="round"{dash}/>'
             )
             svg.append(
-                f'<line class="chart-seg-line" data-seg-row="{seg["row"]}" x1="{seg["x1"]:.1f}" y1="{seg["y1"]:.1f}" x2="{seg["x2"]:.1f}" y2="{seg["y2"]:.1f}" '
-                f'stroke="#69a35f" stroke-width="2.4" opacity=".72" stroke-linecap="round"{dash}/>'
+                f'<line class="chart-seg-line" data-seg-row="{seg["row"]}" data-display-seg="{1 if seg["display"] else 0}" x1="{seg["x1"]:.1f}" y1="{seg["y1"]:.1f}" x2="{seg["x2"]:.1f}" y2="{seg["y2"]:.1f}" '
+                f'stroke="{seg_color}" stroke-width="{seg_width}" opacity="{seg_opacity}" stroke-linecap="round"{dash}/>'
             )
+            if seg["display"]:
+                svg.append(
+                    f'<circle class="chart-seg-endpoint" cx="{seg["x1"]:.1f}" cy="{seg["y1"]:.1f}" r="3.8" fill="{seg_color}" opacity=".95"/>'
+                )
+                svg.append(
+                    f'<circle class="chart-seg-endpoint" cx="{seg["x2"]:.1f}" cy="{seg["y2"]:.1f}" r="3.8" fill="{seg_color}" opacity=".95"/>'
+                )
 
         svg.append(f'<g id="eigen-layer-{chart_id}" class="eigen-layer">')
         for box in eigen_boxes:
@@ -1749,7 +1870,7 @@ for bi in begin_next ... window_end:
 
         return f"""
 {fx_table}
-<div class="chart-shell">
+<div class="chart-shell" data-seg-count="{len(segments)}" data-display-seg-count="{display_seg_count}">
   <div class="chart-toolbar">
     <strong>{html.escape(label)}</strong>
     <button id="zoom-in-{chart_id}" title="放大" type="button">+</button>
