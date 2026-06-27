@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Union
 from Chan import CChan
 from Common.CEnum import BI_DIR, FX_TYPE, KL_TYPE
 from Plot.PlotMeta import CChanPlotMeta
+from Seg.SegListChanV2 import classify_segment_v2_mode
 
 
 def _clean_id(value: str) -> str:
@@ -600,6 +601,19 @@ window.addEventListener('message', function(event) {{
     def _time_input_type(label: str) -> str:
         return "date" if label in ("日线", "周线", "月线") else "datetime-local"
 
+    def _classify_segment_v2_mode(
+        self,
+        label: str,
+        meta: CChanPlotMeta,
+        component_pens: List[Dict[str, Any]],
+        all_pens: List[Dict[str, Any]],
+        direction: str,
+    ) -> Dict[str, str]:
+        seg_config = getattr(getattr(getattr(meta, "data", None), "seg_list", None), "config", None)
+        if getattr(seg_config, "seg_algo", None) != "chan_v2":
+            return {}
+        return classify_segment_v2_mode(label, component_pens, all_pens, direction)
+
     @staticmethod
     def _logic_content_html() -> str:
         content = """
@@ -1097,7 +1111,7 @@ for bi in begin_next ... window_end:
 """
         return content.replace("{segment_v2_md_html}", _segment_v2_md_html())
 
-    def _build_report_rows(self, meta: CChanPlotMeta) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    def _build_report_rows(self, meta: CChanPlotMeta, label: str) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
         endpoint_map: Dict[int, List[str]] = {}
         pen_rows: List[Dict[str, Any]] = []
         for i, bi in enumerate(meta.bi_list):
@@ -1188,6 +1202,9 @@ for bi in begin_next ... window_end:
                     "相邻线段首尾相接，线段端点取自笔端点，不直接连接原始K线。"
                 ),
             ]
+            v2_mode = self._classify_segment_v2_mode(label, meta, component_pens, pen_rows, direction)
+            if v2_mode:
+                notes.append(v2_mode["desc"])
             if component_pens:
                 pen_parts = []
                 for pen in component_pens:
@@ -1411,7 +1428,7 @@ for bi in begin_next ... window_end:
         return fx_rows, pen_rows, seg_rows
 
     def _make_detail_tables(self, meta: CChanPlotMeta, chart_id: str, label: str) -> tuple[str, str, str]:
-        fx_rows, pen_rows, seg_rows = self._build_report_rows(meta)
+        fx_rows, pen_rows, seg_rows = self._build_report_rows(meta, label)
         input_type = self._time_input_type(label)
         input_title = "选择交易日期" if input_type == "date" else "选择交易日期和分钟"
 
