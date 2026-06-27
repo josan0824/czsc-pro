@@ -18,6 +18,7 @@ from Plot.HtmlPlotDriver import CHtmlPlotDriver
 
 DEFAULT_CODE = "SH000001"
 DEFAULT_SOURCE = "mootdx"
+DEFAULT_SEG_ALGO = "chan_v2"
 CODE_NAME_MAP = {
     "000001.SH": "上证指数",
     "SH000001": "上证指数",
@@ -158,13 +159,13 @@ SEG_ALGO_OPTIONS = {
 
 
 def parse_seg_algo(value: str) -> str:
-    seg_algo = (value or "chan").strip().lower()
+    seg_algo = (value or DEFAULT_SEG_ALGO).strip().lower()
     if seg_algo in SEG_ALGO_OPTIONS:
         return SEG_ALGO_OPTIONS[seg_algo]
     raise ValueError(f"不支持的线段算法: {value}")
 
 
-def make_config(trigger_step: bool = False, seg_algo: str = "chan") -> CChanConfig:
+def make_config(trigger_step: bool = False, seg_algo: str = DEFAULT_SEG_ALGO) -> CChanConfig:
     return CChanConfig({
         "bi_strict": True,
         "bi_fx_check": "totally",
@@ -213,7 +214,7 @@ def make_plot_para() -> dict:
     }
 
 
-def build_single_level_chan(code: str, lv: KL_TYPE, begin_time: str, data_src, seg_algo: str = "chan") -> CChan:
+def build_single_level_chan(code: str, lv: KL_TYPE, begin_time: str, data_src, seg_algo: str = DEFAULT_SEG_ALGO) -> CChan:
     return CChan(
         code=code,
         begin_time=begin_time,
@@ -251,7 +252,7 @@ def build_level_nav(code: str, active_lv: KL_TYPE, days: int, source: str, seg_a
     return items
 
 
-def build_chart_html(code: str, lv_key: str, days: int, source: str = DEFAULT_SOURCE, seg_algo: str = "chan") -> str:
+def build_chart_html(code: str, lv_key: str, days: int, source: str = DEFAULT_SOURCE, seg_algo: str = DEFAULT_SEG_ALGO) -> str:
     normalized_code = normalize_code(code)
     lv = parse_lv(lv_key)
     data_src = parse_source(source)
@@ -290,7 +291,7 @@ def attach_chart_signature(html_text: str, signature: str) -> str:
     return html_text
 
 
-def build_chart_payload(code: str, lv_key: str, days: int, source: str = DEFAULT_SOURCE, seg_algo: str = "chan") -> tuple[str, str]:
+def build_chart_payload(code: str, lv_key: str, days: int, source: str = DEFAULT_SOURCE, seg_algo: str = DEFAULT_SEG_ALGO) -> tuple[str, str]:
     html_text = build_chart_html(code, lv_key, days, source, seg_algo)
     signature = sign_chart_html(html_text)
     return attach_chart_signature(html_text, signature), signature
@@ -330,7 +331,7 @@ pre {{ white-space:pre-wrap; word-break:break-word; background:#f8fafc; border:1
 
 def index_html(host: str, port: int) -> str:
     quick_items = json.dumps(QUICK_ITEMS, ensure_ascii=False)
-    default_query = urlencode({"code": DEFAULT_CODE, "lv": "1m", "days": "30", "source": DEFAULT_SOURCE, "seg_algo": "chan"})
+    default_query = urlencode({"code": DEFAULT_CODE, "lv": "1m", "days": "30", "source": DEFAULT_SOURCE, "seg_algo": DEFAULT_SEG_ALGO})
     chart_url = f"chart?{default_query}"
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -692,8 +693,8 @@ iframe {{
           <option value="eastmoney">东方财富</option>
         </select>
         <select id="seg-algo-select" name="seg_algo" title="切换线段划分算法">
-          <option value="chan" selected>线段 chan</option>
-          <option value="chan_v2">线段 v2.0</option>
+          <option value="chan">线段 chan</option>
+          <option value="chan_v2" selected>线段 v2.0</option>
           <option value="chan_doubao">线段 doubao</option>
           <option value="chan_doubao2">线段 doubao2</option>
           <option value="chan_doubao3">线段 doubao3</option>
@@ -1094,7 +1095,7 @@ class ChanChartHandler(BaseHTTPRequestHandler):
         code = (params.get("code") or [DEFAULT_CODE])[0]
         lv = (params.get("lv") or ["1m"])[0]
         source = (params.get("source") or [DEFAULT_SOURCE])[0]
-        seg_algo = (params.get("seg_algo") or ["chan"])[0]
+        seg_algo = (params.get("seg_algo") or [DEFAULT_SEG_ALGO])[0]
         try:
             days = int((params.get("days") or ["30"])[0])
         except ValueError:
@@ -1111,7 +1112,7 @@ class ChanChartHandler(BaseHTTPRequestHandler):
         code = (params.get("code") or [DEFAULT_CODE])[0]
         lv = (params.get("lv") or ["1m"])[0]
         source = (params.get("source") or [DEFAULT_SOURCE])[0]
-        seg_algo = (params.get("seg_algo") or ["chan"])[0]
+        seg_algo = (params.get("seg_algo") or [DEFAULT_SEG_ALGO])[0]
         known_sig = (params.get("known_sig") or [""])[0]
         try:
             days = int((params.get("days") or ["30"])[0])
