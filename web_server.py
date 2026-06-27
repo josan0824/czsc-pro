@@ -514,7 +514,47 @@ iframe {{
 .logic-dialog-body h3 {{ margin:0 0 7px; font-size:14px; line-height:1.35; }}
 .logic-dialog-body p,.logic-dialog-body li {{ color:#344054; }}
 .logic-dialog-body code {{ background:#f2f4f7; padding:1px 4px; border-radius:3px; }}
+.logic-dialog-body img {{
+  display:block;
+  max-width:100%;
+  height:auto;
+}}
 .logic-guide {{ color:#101828; }}
+.logic-md-doc {{
+  max-width:980px;
+}}
+.logic-md-source {{
+  margin:0 0 12px;
+  color:#667085;
+  font-size:12px;
+}}
+.logic-md-image {{
+  margin:12px 0 18px;
+}}
+.logic-md-image img {{
+  border:1px solid #e4e7ec;
+  border-radius:6px;
+  background:#fff;
+}}
+.logic-md-missing-image {{
+  display:inline-block;
+  margin:8px 0;
+  padding:6px 8px;
+  border:1px solid #fecdca;
+  border-radius:4px;
+  background:#fffbfa;
+  color:#b42318;
+  font-size:12px;
+}}
+.logic-dialog-body blockquote {{
+  margin:10px 0;
+  padding:8px 12px;
+  border-left:3px solid #d0d5dd;
+  background:#f9fafb;
+}}
+.logic-dialog-body blockquote p {{
+  margin:0;
+}}
 .logic-intro {{
   max-width:900px;
   margin-bottom:14px;

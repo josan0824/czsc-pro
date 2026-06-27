@@ -1,6 +1,8 @@
+import base64
 import html
 import json
 import math
+import mimetypes
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -38,6 +40,166 @@ def _dir_label(direction: str) -> str:
 
 def _seg_dir_label(direction: str) -> str:
     return "向上线段" if direction == "up" else "向下线段"
+
+
+def _render_md_inline(text: str, base_dir: Path) -> str:
+    def render_text(value: str) -> str:
+        escaped = html.escape(value)
+        escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
+        escaped = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
+        return escaped
+
+    image_pattern = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
+    pieces: List[str] = []
+    pos = 0
+    for match in image_pattern.finditer(text):
+        pieces.append(render_text(text[pos:match.start()]))
+        pieces.append(_render_md_image(match.group(1), match.group(2), base_dir))
+        pos = match.end()
+    pieces.append(render_text(text[pos:]))
+    return "".join(pieces)
+
+
+def _resolve_md_asset(src: str, base_dir: Path) -> Optional[Path]:
+    src = src.strip().strip("<>")
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", src):
+        return None
+    path = Path(src)
+    candidates = []
+    if path.is_absolute():
+        candidates.append(path)
+    else:
+        candidates.append(base_dir / path)
+        if len(path.parts) == 1:
+            candidates.append(base_dir / "assets" / path.name)
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
+
+
+def _render_md_image(alt: str, src: str, base_dir: Path) -> str:
+    asset = _resolve_md_asset(src, base_dir)
+    if asset is None:
+        if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", src):
+            return f'<figure class="logic-md-image"><img src="{html.escape(src, quote=True)}" alt="{html.escape(alt, quote=True)}"></figure>'
+        return (
+            '<span class="logic-md-missing-image">'
+            f'图片未找到：{html.escape(src)}'
+            '</span>'
+        )
+    mime = mimetypes.guess_type(asset.name)[0] or "application/octet-stream"
+    data = base64.b64encode(asset.read_bytes()).decode("ascii")
+    return (
+        '<figure class="logic-md-image">'
+        f'<img src="data:{mime};base64,{data}" alt="{html.escape(alt, quote=True)}">'
+        '</figure>'
+    )
+
+
+def _render_markdown_file(md_path: Path, display_path: str) -> str:
+    if not md_path.exists():
+        return f"<p>Markdown 文档不存在：<code>{html.escape(str(md_path))}</code></p>"
+
+    base_dir = md_path.parent
+    lines = md_path.read_text(encoding="utf-8").splitlines()
+    html_parts: List[str] = []
+    paragraph: List[str] = []
+    list_items: List[str] = []
+    list_tag: Optional[str] = None
+    in_code = False
+    code_lang = ""
+    code_lines: List[str] = []
+
+    def flush_paragraph() -> None:
+        nonlocal paragraph
+        if paragraph:
+            html_parts.append(f'<p>{" ".join(_render_md_inline(x.strip(), base_dir) for x in paragraph)}</p>')
+            paragraph = []
+
+    def flush_list() -> None:
+        nonlocal list_items, list_tag
+        if list_items and list_tag:
+            html_parts.append(f"<{list_tag}>{''.join(list_items)}</{list_tag}>")
+        list_items = []
+        list_tag = None
+
+    for line in lines:
+        fence = re.match(r"^```([A-Za-z0-9_-]*)\s*$", line)
+        if fence:
+            if in_code:
+                html_parts.append(
+                    f'<pre><code class="language-{html.escape(code_lang, quote=True)}">'
+                    f'{html.escape(chr(10).join(code_lines))}'
+                    '</code></pre>'
+                )
+                in_code = False
+                code_lang = ""
+                code_lines = []
+            else:
+                flush_paragraph()
+                flush_list()
+                in_code = True
+                code_lang = fence.group(1)
+            continue
+
+        if in_code:
+            code_lines.append(line)
+            continue
+
+        if not line.strip():
+            flush_paragraph()
+            flush_list()
+            continue
+
+        heading = re.match(r"^(#{1,6})\s+(.*)$", line)
+        if heading:
+            flush_paragraph()
+            flush_list()
+            level = len(heading.group(1))
+            html_parts.append(f"<h{level}>{_render_md_inline(heading.group(2).strip(), base_dir)}</h{level}>")
+            continue
+
+        quote = re.match(r"^>\s?(.*)$", line)
+        if quote:
+            flush_paragraph()
+            flush_list()
+            html_parts.append(f"<blockquote><p>{_render_md_inline(quote.group(1).strip(), base_dir)}</p></blockquote>")
+            continue
+
+        unordered = re.match(r"^\s*[-*]\s+(.*)$", line)
+        ordered = re.match(r"^\s*\d+\.\s+(.*)$", line)
+        if unordered or ordered:
+            flush_paragraph()
+            wanted_tag = "ul" if unordered else "ol"
+            if list_tag and list_tag != wanted_tag:
+                flush_list()
+            list_tag = wanted_tag
+            item = (unordered or ordered).group(1).strip()
+            list_items.append(f"<li>{_render_md_inline(item, base_dir)}</li>")
+            continue
+
+        flush_list()
+        paragraph.append(line)
+
+    flush_paragraph()
+    flush_list()
+    if in_code:
+        html_parts.append(f"<pre><code>{html.escape(chr(10).join(code_lines))}</code></pre>")
+    return (
+        '<article class="logic-md-doc">'
+        f'<div class="logic-md-source">来源：<code>{html.escape(display_path)}</code></div>'
+        f'{"".join(html_parts)}'
+        '</article>'
+    )
+
+
+def _segment_v2_md_html() -> str:
+    repo_root = Path(__file__).resolve().parents[1]
+    return _render_markdown_file(
+        repo_root / "docs" / "line" / "线段v2.0.md",
+        "docs/line/线段v2.0.md",
+    )
 
 
 class CHtmlPlotDriver:
@@ -440,7 +602,7 @@ window.addEventListener('message', function(event) {{
 
     @staticmethod
     def _logic_content_html() -> str:
-        return """
+        content = """
 <div class="logic-guide">
   <div class="logic-intro">
     <h1>当前分型与笔划分逻辑</h1>
@@ -640,132 +802,7 @@ window.addEventListener('message', function(event) {{
     </div>
   </section>
   <section class="logic-tab-panel" data-logic-panel="segment-v2">
-    <h2>7. 线段v2.0</h2>
-    <p>本节说明页面选择 <code>seg_algo=chan_v2</code> 时，线段是怎样从笔列表一步一步画出来的。线段v2.0 不直接读取原始 K 线高低点，也不跳过笔去连接普通分型；它的输入是已经生成的有效笔序列，核心证据是“当前疑似线段里的反向笔组成的特征序列”。</p>
-    <div class="logic-grid">
-      <div class="logic-card">
-        <h3>当前代码入口</h3>
-        <p>页面下拉选择 <code>线段 v2.0</code> 后，服务端传入 <code>seg_algo=chan_v2</code>，最终由 <code>CSegListChanV2</code> 计算。</p>
-        <pre><code>update()
-  do_init()
-  cal_seg_sure()
-    CEigenFXV2.add()
-    treat_fx_eigen()
-  collect_left_seg()</code></pre>
-      </div>
-      <div class="logic-card">
-        <h3>输入是什么</h3>
-        <p>输入是笔列表，也就是图上的灰白笔线。笔已经完成 K 线包含、顶底分型识别、成笔过滤、缺口破格等前置步骤。线段v2.0 不会重新做这些前置判断。</p>
-      </div>
-      <div class="logic-card">
-        <h3>输出是什么</h3>
-        <p>输出是图上的粗段线和线段列表。线段起点、终点都取自笔端点；确认段用实线，尾部证据不足的段用虚线或未确认状态显示。</p>
-      </div>
-      <div class="logic-card">
-        <h3>最小门槛</h3>
-        <p>一条确认线段至少要覆盖三笔，并且起止方向、起止价格要符合上升段或下降段的基本方向约束。不满足时，即使临时收集成段，也会标为未确认。</p>
-      </div>
-    </div>
-    <h3>名词定义</h3>
-    <div class="logic-rule-table">
-      <div><strong>笔</strong><span>由有效顶底分型连接出来的基础走势单元。页面上灰白细线就是笔。</span></div>
-      <div><strong>线段</strong><span>由连续笔组成的更高一级走势单元。页面上粗线就是线段，表格中会列出起止笔、起止价格、笔数和状态。</span></div>
-      <div><strong>向上线段</strong><span>从底部笔端点开始，向上推进到顶部笔端点。它是否结束，要观察其中的下降笔。</span></div>
-      <div><strong>向下线段</strong><span>从顶部笔端点开始，向下推进到底部笔端点。它是否结束，要观察其中的上升笔。</span></div>
-      <div><strong>特征序列</strong><span>判断当前线段是否结束时抽取的一组反向笔。上升段取下降笔，下降段取上升笔。</span></div>
-      <div><strong>特征序列元素</strong><span>特征序列里的一项，通常对应一根反向笔，包含高点、低点、对应笔索引和确认状态。</span></div>
-      <div><strong>特征序列分型</strong><span>特征序列内部三元素形成的顶/底结构。它不是原始 K 线分型，而是“反向笔序列”上的分型。</span></div>
-      <div><strong>缺口</strong><span>特征序列分型中，中间元素和前一元素之间出现价格断层。缺口会改变线段结束的确认路径。</span></div>
-      <div><strong>确认线段</strong><span>证据充分、可作为后续中枢和买卖点计算依据的线段。表格状态显示为“有效”。</span></div>
-      <div><strong>未确认线段</strong><span>尾部走势已经形成候选段，但证据仍可能被后续新笔改写。表格状态显示为“未确认”。</span></div>
-    </div>
-    <h3>方向与特征序列</h3>
-    <div class="logic-grid">
-      <div class="logic-card">
-        <h3>上升段怎么判断结束</h3>
-        <p>假设当前线段向上，笔序列可以抽象成 <code>U1, D2, U3, D4, U5, D6...</code>。系统取 <code>D2, D4, D6...</code> 作为特征序列。只有这些下降笔在特征序列里形成有效顶分型，才具备结束上升段的条件。</p>
-      </div>
-      <div class="logic-card">
-        <h3>下降段怎么判断结束</h3>
-        <p>假设当前线段向下，笔序列可以抽象成 <code>D1, U2, D3, U4, D5, U6...</code>。系统取 <code>U2, U4, U6...</code> 作为特征序列。只有这些上升笔在特征序列里形成有效底分型，才具备结束下降段的条件。</p>
-      </div>
-      <div class="logic-card">
-        <h3>为什么看反向笔</h3>
-        <p>线段结束本质上是原方向被反向结构破坏。上升段要看下跌笔是否形成足够强的反向结构；下降段要看上升笔是否形成足够强的反向结构。</p>
-      </div>
-      <div class="logic-card">
-        <h3>图上怎么核对</h3>
-        <p>打开图表上的“特征”按钮，会显示特征序列框。红色/蓝色框对应不同方向的特征序列元素，你可以对照线段列表查看是哪几笔触发了结束确认。</p>
-      </div>
-    </div>
-    <h3>包含处理</h3>
-    <div class="logic-rule-table">
-      <div><strong>为什么要包含处理</strong><span>特征序列元素之间可能互相包含。如果不处理，局部重叠会制造假分型或抹掉真实缺口。</span></div>
-      <div><strong>v2.0 的核心差异</strong><span><code>CEigenFXV2</code> 对第一、第二特征元素不先做普通包含合并，而是先保留它们的相对关系，尤其保留缺口/无缺口判断。</span></div>
-      <div><strong>默认 chan 的差异</strong><span>默认 <code>chan</code> 会更早尝试合并第一、第二特征元素；这可能提前抹掉 v2.0 很关心的缺口关系。</span></div>
-      <div><strong>重置机制</strong><span>如果第二元素出现后发现前两个元素不可能形成有效分型，算法会从后一批特征元素重新开始扫描，而不是硬凑线段。</span></div>
-    </div>
-    <h3>完整确认流程</h3>
-    <div class="logic-rule-table">
-      <div><strong>1. 清理尾部</strong><span>每次重算先删除末尾未确认线段；如果最后确认段依赖的特征序列尾元素仍未确认，也会回退，避免用过期证据画段。</span></div>
-      <div><strong>2. 确定扫描起点</strong><span>没有线段时从第 0 笔开始；已有确认段时，从最后一段终点后一笔开始继续扫描。</span></div>
-      <div><strong>3. 同时观察两套序列</strong><span>首段方向未定时，会同时维护“上升段结束用的下降特征序列”和“下降段结束用的上升特征序列”。</span></div>
-      <div><strong>4. 首段方向预判</strong><span>不是谁先出分型就立即定方向，而是等某一侧已经出现第二特征元素后，结合当前笔方向排除另一侧，降低首段误判。</span></div>
-      <div><strong>5. 收集特征元素</strong><span>遇到与当前疑似线段方向相反的笔，就加入对应特征序列。上升候选段收下降笔，下降候选段收上升笔。</span></div>
-      <div><strong>6. 形成三元素</strong><span>特征序列至少需要三组元素，才可能判断顶/底分型。少于三组时不会确认线段结束。</span></div>
-      <div><strong>7. 判断特征分型</strong><span>上升段结束看下降特征序列顶分型；下降段结束看上升特征序列底分型。</span></div>
-      <div><strong>8. 判断缺口</strong><span>分型中间元素和前一元素之间如果有缺口，不能立即确认，需要进入二次确认路径。</span></div>
-      <div><strong>9. 无缺口路径</strong><span>无缺口且实际突破条件成立时，分型峰值笔可作为线段候选终点，进入添加线段流程。</span></div>
-      <div><strong>10. 有缺口路径</strong><span>有缺口时，算法继续向后寻找反向特征序列分型。只有后续反向证据成立，才确认前一线段结束。</span></div>
-      <div><strong>11. 添加线段</strong><span>候选终点通过 <code>add_new_seg()</code> 写入线段列表。若特征序列和证据笔都确认，则线段为有效；否则为未确认。</span></div>
-      <div><strong>12. 递归继续</strong><span>如果本次线段确认成立，就从新线段终点后一笔继续扫描下一段，直到没有足够证据。</span></div>
-      <div><strong>13. 收集尾段</strong><span>剩余走势不够确认新段时，通用尾段逻辑会收集为未确认线段，让图上能看到当前候选走势。</span></div>
-    </div>
-    <h3>缺口确认</h3>
-    <div class="logic-grid">
-      <div class="logic-card">
-        <h3>无缺口例子</h3>
-        <p>上升段中，下降特征序列为 <code>D2, D4, D6</code>。若 <code>D4</code> 构成顶分型，且 <code>D2</code> 与 <code>D4</code> 之间没有缺口，系统可以把上升段终点落在 <code>D4</code> 对应的峰值笔附近。</p>
-      </div>
-      <div class="logic-card">
-        <h3>有缺口例子</h3>
-        <p>仍以上升段为例，若 <code>D4</code> 与 <code>D2</code> 之间跳空，当前顶分型只表示“可能结束”。系统继续看后续走势中是否出现反向确认，而不是立刻画出确认段。</p>
-      </div>
-      <div class="logic-card">
-        <h3>为什么缺口不能忽略</h3>
-        <p>缺口表示特征序列第一、第二元素之间并没有正常重叠过渡。它可能只是走势过快造成的中间状态，必须等待后续证据确认是否真的破坏原线段。</p>
-      </div>
-      <div class="logic-card">
-        <h3>代码里的体现</h3>
-        <p><code>CEigenFX.can_be_end()</code> 会检查特征序列缺口。无缺口可直接返回确认；有缺口时会进入后续反向分型查找逻辑。</p>
-      </div>
-    </div>
-    <h3>复杂场景举例</h3>
-    <div class="logic-rule-table">
-      <div><strong>例 1：不足三笔</strong><span>只有 <code>U1, D2</code> 时不能构成线段。图上最多是笔，或者尾部候选，不应当出现确认段。</span></div>
-      <div><strong>例 2：三笔但无重叠</strong><span><code>U1, D2, U3</code> 虽然有三笔，但前三笔价格区间没有重叠时，反向线段证据不足，不能确认破坏。</span></div>
-      <div><strong>例 3：包含导致分型消失</strong><span><code>D2, D4, D6</code> 看起来像顶分型，但经过特征序列包含处理后，中间元素被合并或结构改变，则不能确认上升段结束。</span></div>
-      <div><strong>例 4：无缺口标准确认</strong><span>下降特征序列形成顶分型，第一、第二元素无缺口，且实际突破条件成立，上升段可确认结束。</span></div>
-      <div><strong>例 5：有缺口待确认</strong><span>下降特征序列形成顶分型，但第一、第二元素有缺口，此时只进入待确认，图上后续段可能仍是未确认状态。</span></div>
-      <div><strong>例 6：笔破坏但线段未破坏</strong><span>一根反向笔跌破上升段内部低点，但后续没有走出完整反向线段，不能单靠这一笔终结原线段。</span></div>
-      <div><strong>例 7：强反向后震荡</strong><span>大阴线后多笔都在该阴线范围内震荡，特征序列无法形成有效分型，原线段继续延伸或只显示未确认尾段。</span></div>
-      <div><strong>例 8：后续创新高</strong><span>上升段疑似被破坏后，价格又突破原高点，说明此前反向结构证据不足，中间走势可能被视为原上升段内部波动。</span></div>
-      <div><strong>例 9：缺口后反向确认</strong><span>有缺口分型先出现，后面又形成反向特征序列分型，才把原线段终点落定到前面的候选位置。</span></div>
-      <div><strong>例 10：尾部未确认</strong><span>最后几笔已经像新段，但证据不足。线段表会显示“未确认”，后续新 K 线可能让这段延长、删除或改写方向。</span></div>
-    </div>
-    <h3>如何判断图上是不是按这个规则画的</h3>
-    <div class="logic-rule-table">
-      <div><strong>第一步</strong><span>先看笔列表。线段只能由这些有效笔组成，不能跨过笔直接连接 K 线高低点。</span></div>
-      <div><strong>第二步</strong><span>在线段列表里找到某一段的起止笔，确认它至少覆盖三笔，方向和起止价格符合上升/下降段。</span></div>
-      <div><strong>第三步</strong><span>打开“特征”按钮，看该段结束前的反向笔是否组成了三组特征序列元素。</span></div>
-      <div><strong>第四步</strong><span>检查特征序列是否形成顶/底分型。上升段结束看下降特征序列顶分型，下降段结束看上升特征序列底分型。</span></div>
-      <div><strong>第五步</strong><span>检查第一、第二特征元素之间是否有缺口。有缺口时，不能只凭当前分型确认，要看后续反向确认。</span></div>
-      <div><strong>第六步</strong><span>看线段状态。有效段表示证据已确认；未确认段表示只是尾部候选，后续行情可能改写。</span></div>
-      <div><strong>第七步</strong><span>如果同一批笔在 <code>chan</code> 和 <code>chan_v2</code> 下画法不同，重点检查第一、第二特征元素是否被合并，以及缺口是否被保留下来。</span></div>
-    </div>
-    <div class="logic-example">
-      <strong>一句话复核：</strong>线段v2.0 先以有效笔为原料，再抽取当前线段的反向笔组成特征序列；特征序列形成有效分型且缺口确认路径通过后，才把线段终点画出来。证据不足时，图上只应出现未确认尾段，而不是确认段。
-    </div>
+    {segment_v2_md_html}
   </section>
   <section class="logic-tab-panel" data-logic-panel="segment-doubao">
     <h2>8. 线段-豆包</h2>
@@ -935,13 +972,26 @@ for bi in begin_next ... window_end:
     <h3>确认流程</h3>
     <div class="logic-rule-table">
       <div><strong>1. 构造特征序列</strong><span>从当前搜索起点到笔列表末尾，抽取当前线段反向笔作为特征元素。</span></div>
-      <div><strong>2. 包含处理</strong><span>第 1、2 元素仅左包右；第 2 元素之后双向合并。向上线段取低低，向下线段取高高。</span></div>
+      <div><strong>2. 包含处理</strong><span>第 1、2 元素仅左包右；如果第 1 个元素包含第 2 个元素，保留第 1 个元素并记录第 2 个被并入；如果第 2 个元素包含第 1 个元素，不合并、不追加第 2 个元素，继续保留第 1 个元素。第 3 个元素开始才允许双向合并。</span></div>
+      <div><strong>2a. 上升段取低低</strong><span>当前线段向上时，特征序列是下降笔。第 3 个元素以后若发生包含，合并后高点取两者较低值、低点也取两者较低值，也就是向下包含的“低低”。</span></div>
+      <div><strong>2b. 下降段取高高</strong><span>当前线段向下时，特征序列是上升笔。第 3 个元素以后若发生包含，合并后高点取两者较高值、低点也取两者较高值，也就是向上包含的“高高”。</span></div>
       <div><strong>3. 找第一分型</strong><span>处理后的特征序列里取第一组有效分型。向上线段找底分型，向下线段找顶分型。</span></div>
       <div><strong>4. 无缺口</strong><span>第一分型无缺口时，先认为当前线段终结，终结类型记为 <code>doubao3_no_gap</code>。</span></div>
       <div><strong>5. 有缺口</strong><span>第一分型有缺口时，从该分型后一笔开始构建反向线段的特征序列；若反向序列出现分型，原线段才确认终结，终结类型记为 <code>doubao3_with_gap</code>。</span></div>
       <div><strong>6. 反向确认</strong><span>生成当前计划线段后，再检查文档端点开始是否存在三笔交替且前三笔价格区间重叠。若不成立，则停止继续向后划分。</span></div>
       <div><strong>7. 尾段</strong><span>特征元素不足、包含后不足、找不到分型或有缺口无法确认时，剩余部分生成未确认尾段，原因记为 <code>doubao3_initial</code>。</span></div>
       <div><strong>8. 同向合并</strong><span>计划线段生成后，如果出现连续同方向线段，会按新文档流程先合并再写入项目线段列表。</span></div>
+    </div>
+    <h3>复杂情况一：特征序列包含</h3>
+    <div class="logic-rule-table">
+      <div><strong>原文图对应含义</strong><span>前一组特征序列已经形成分型；后一组特征序列因为元素之间存在包含关系，包含处理后分型不成立。因此从当前起点到最后只能确认一段，而不是拆成三段。</span></div>
+      <div><strong>第 1、2 元素左包右</strong><span>若第 1 个元素区间为 <code>[10, 20]</code>，第 2 个元素为 <code>[12, 18]</code>，第 1 个元素包含第 2 个元素；代码保留第 1 个元素，并把第 2 个元素记入 <code>merged_from</code>。</span></div>
+      <div><strong>第 1、2 元素右包左</strong><span>若第 1 个元素为 <code>[12, 18]</code>，第 2 个元素为 <code>[10, 20]</code>，第 2 个元素包含第 1 个元素；新豆包规则不允许右包左合并，代码不会追加第 2 个元素，仍用第 1 个元素等待后续元素。</span></div>
+      <div><strong>第 3 个以后双向</strong><span>一旦结果序列里已经有两个以上元素，后续相邻元素只要有包含关系就合并；此时不再区分左包右还是右包左，而是按线段方向取低低或高高。</span></div>
+      <div><strong>上升段例子</strong><span>向上线段取下降笔。若后续下降特征元素 <code>D4=[15, 25]</code>、<code>D6=[12, 22]</code> 包含，合并成 <code>[12, 22]</code>；低点和高点都取较低值。合并后若不足三元素或中间低点不再最低，就不能形成底分型。</span></div>
+      <div><strong>下降段例子</strong><span>向下线段取上升笔。若后续上升特征元素 <code>U4=[15, 25]</code>、<code>U6=[18, 28]</code> 包含，合并成 <code>[18, 28]</code>；低点和高点都取较高值。合并后若中间高点不再最高，就不能形成顶分型。</span></div>
+      <div><strong>代码核对点</strong><span>对应 <code>CSegListChanDoubao3._process_inclusion()</code>：<code>len(result) == 1</code> 时只处理左包右；之后按 <code>seg_dir == UP</code> 取 <code>min(high), min(low)</code>，否则取 <code>max(high), max(low)</code>。</span></div>
+      <div><strong>图上核对点</strong><span>如果你看到后一组走势有多根反向笔互相包含，但线段没有在中间拆开，先打开“特征”框看包含后是否还能留下三组有效特征元素；如果不能，按规则就应当保持原线段延续。</span></div>
     </div>
     <div class="logic-example">
       <strong>核心区别：</strong><code>chan_doubao3</code> 按新文档规则执行；它和 <code>chan_doubao2</code> 的主要差异在分型方向、第 1/2 元素包含处理、无缺口先终结后确认、以及同向线段后处理合并。
@@ -1045,6 +1095,7 @@ for bi in begin_next ... window_end:
   </section>
 </div>
 """
+        return content.replace("{segment_v2_md_html}", _segment_v2_md_html())
 
     def _build_report_rows(self, meta: CChanPlotMeta) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
         endpoint_map: Dict[int, List[str]] = {}
