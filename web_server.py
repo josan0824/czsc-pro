@@ -165,12 +165,13 @@ def parse_seg_algo(value: str) -> str:
     raise ValueError(f"不支持的线段算法: {value}")
 
 
-def make_config(trigger_step: bool = False, seg_algo: str = DEFAULT_SEG_ALGO) -> CChanConfig:
+def make_config(trigger_step: bool = False, seg_algo: str = DEFAULT_SEG_ALGO, seg_lv: KL_TYPE | None = None) -> CChanConfig:
     return CChanConfig({
         "bi_strict": True,
         "bi_fx_check": "totally",
         "gap_as_kl": True,
         "seg_algo": parse_seg_algo(seg_algo),
+        "seg_lv": seg_lv,
         "trigger_step": trigger_step,
         "skip_step": 0,
         "divergence_rate": float("inf"),
@@ -221,7 +222,7 @@ def build_single_level_chan(code: str, lv: KL_TYPE, begin_time: str, data_src, s
         end_time=None,
         data_src=data_src,
         lv_list=[lv],
-        config=make_config(seg_algo=seg_algo),
+        config=make_config(seg_algo=seg_algo, seg_lv=lv),
         autype=AUTYPE.QFQ,
     )
 

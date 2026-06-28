@@ -1,7 +1,8 @@
 from typing import Any, Dict, List, Optional
 
 from Bi.Bi import CBi
-from Common.CEnum import BI_DIR, KLINE_DIR, SEG_TYPE
+from Common.CEnum import BI_DIR, KLINE_DIR, KL_TYPE, SEG_TYPE
+from Common.func_util import revert_bi_dir
 
 from .Eigen import CEigen
 from .EigenFX import CEigenFX
@@ -42,6 +43,30 @@ def _feature_fx_kind(features: List[Dict[str, Any]]) -> Optional[str]:
 
 def _opposite_dir(direction: str) -> str:
     return "down" if direction == "up" else "up"
+
+
+def _lv_to_label(lv) -> str:
+    mapping = {
+        KL_TYPE.K_1M: "1分钟",
+        KL_TYPE.K_5M: "5分钟",
+        KL_TYPE.K_15M: "15分钟",
+        KL_TYPE.K_30M: "30分钟",
+        KL_TYPE.K_60M: "60分钟",
+        KL_TYPE.K_DAY: "日线",
+        KL_TYPE.K_WEEK: "周线",
+        KL_TYPE.K_MON: "月线",
+    }
+    return mapping.get(lv, "")
+
+
+def _bi_to_pen_row(bi: CBi) -> Dict[str, Any]:
+    return {
+        "idx": int(bi.idx) + 1,
+        "source_idx": int(bi.idx),
+        "direction": "up" if bi.dir == BI_DIR.UP else "down",
+        "begin_price": float(bi.get_begin_val()),
+        "end_price": float(bi.get_end_val()),
+    }
 
 
 def classify_segment_v2_mode(
@@ -195,10 +220,45 @@ class CEigenFXV2(CEigenFX):
                 return True
         return False
 
+    def find_revert_fx(self, bi_list, begin_idx: int, thred_value: float, break_thred: float):
+        """
+        情况二：第一、第二特征元素有缺口时，后一特征序列只要求出现分型。
+
+        线段 v2.0 文档明确说明：第二个特征序列不要求回补前一缺口，
+        也不再区分自身属于有缺口还是无缺口；出现分型即可确认。
+        """
+        if begin_idx >= len(bi_list):
+            return None
+        first_bi_dir = bi_list[begin_idx].dir
+        eigen_fx = CEigenFXV2(revert_bi_dir(first_bi_dir), lv=self.lv)
+        for bi in bi_list[begin_idx::2]:
+            if eigen_fx.add(bi):
+                assert eigen_fx.ele[2]
+                self.last_evidence_bi = eigen_fx.ele[2].lst[-1]
+                self.last_evidence_bi_is_sure = eigen_fx.all_bi_is_sure()
+                return True
+        return None
+
 
 class CSegListChanV2(CSegListChan):
     def __init__(self, seg_config=CSegConfig(seg_algo="chan_v2"), lv=SEG_TYPE.BI):
         super(CSegListChanV2, self).__init__(seg_config=seg_config, lv=lv)
+
+    def _level_label(self) -> str:
+        return _lv_to_label(getattr(self.config, "seg_lv", None))
+
+    def _is_low_level(self) -> bool:
+        return _is_below_30m(self._level_label())
+
+    def _classify_candidate(self, bi_lst, end_bi_idx: int, direction: BI_DIR) -> Dict[str, str]:
+        label = self._level_label()
+        if not label:
+            return {}
+        start_idx = 0 if len(self) == 0 else self[-1].end_bi.idx + 1
+        component_pens = [_bi_to_pen_row(bi) for bi in bi_lst[start_idx:end_bi_idx + 1]]
+        all_pens = [_bi_to_pen_row(bi) for bi in bi_lst]
+        direction_text = "up" if direction == BI_DIR.UP else "down"
+        return classify_segment_v2_mode(label, component_pens, all_pens, direction_text)
 
     def cal_seg_sure(self, bi_lst, begin_idx: int):
         up_eigen = CEigenFXV2(BI_DIR.UP, lv=self.lv)
@@ -227,3 +287,24 @@ class CSegListChanV2(CSegListChan):
             if fx_eigen:
                 self.treat_fx_eigen(fx_eigen, bi_lst)
                 break
+
+    def treat_fx_eigen(self, fx_eigen, bi_lst):
+        _test = fx_eigen.can_be_end(bi_lst)
+        end_bi_idx = fx_eigen.GetPeakBiIdx()
+        if _test in [True, None]:
+            is_true = _test is not None
+            mode_info = self._classify_candidate(bi_lst, end_bi_idx, fx_eigen.dir)
+            reason = mode_info.get("mode", "chan_v2")
+            if not self.add_new_seg(
+                bi_lst,
+                end_bi_idx,
+                is_sure=is_true and fx_eigen.all_bi_is_sure(),
+                reason=f"chan_v2_{reason}",
+            ):
+                self.cal_seg_sure(bi_lst, end_bi_idx + 1)
+                return
+            self.lst[-1].eigen_fx = fx_eigen
+            if is_true:
+                self.cal_seg_sure(bi_lst, end_bi_idx + 1)
+        else:
+            self.cal_seg_sure(bi_lst, fx_eigen.lst[1].idx)

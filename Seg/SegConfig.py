@@ -3,8 +3,9 @@ from Common.ChanException import CChanException, ErrCode
 
 
 class CSegConfig:
-    def __init__(self, seg_algo="chan", left_method="peak"):
+    def __init__(self, seg_algo="chan", left_method="peak", seg_lv=None):
         self.seg_algo = seg_algo
+        self.seg_lv = seg_lv
         if left_method == "all":
             self.left_method = LEFT_SEG_METHOD.ALL
         elif left_method == "peak":

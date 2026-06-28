@@ -31,6 +31,7 @@ class CChanConfig:
         self.seg_conf = CSegConfig(
             seg_algo=conf.get("seg_algo", "chan"),
             left_method=conf.get("left_seg_method", "peak"),
+            seg_lv=conf.get("seg_lv", None),
         )
         self.zs_conf = CZSConfig(
             need_combine=conf.get("zs_combine", True),
