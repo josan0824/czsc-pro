@@ -169,6 +169,7 @@ def make_config(trigger_step: bool = False, seg_algo: str = DEFAULT_SEG_ALGO, se
     return CChanConfig({
         "bi_strict": True,
         "bi_fx_check": "totally",
+        "bi_allow_sub_peak": False,
         "gap_as_kl": True,
         "seg_algo": parse_seg_algo(seg_algo),
         "seg_lv": seg_lv,

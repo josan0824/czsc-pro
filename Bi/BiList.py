@@ -36,13 +36,25 @@ class CBiList:
     def try_create_first_bi(self, klc: CKLine) -> bool:
         for exist_free_klc in self.free_klc_lst:
             if exist_free_klc.fx == klc.fx:
-                continue
+                if self.is_better_same_fx(klc, exist_free_klc):
+                    self.free_klc_lst.remove(exist_free_klc)
+                    self.free_klc_lst.append(klc)
+                    self.last_end = klc
+                return False
             if self.can_make_bi(klc, exist_free_klc):
                 self.add_new_bi(exist_free_klc, klc)
                 self.last_end = klc
                 return True
         self.free_klc_lst.append(klc)
         self.last_end = klc
+        return False
+
+    @staticmethod
+    def is_better_same_fx(new_klc: CKLine, old_klc: CKLine) -> bool:
+        if new_klc.fx == FX_TYPE.TOP:
+            return new_klc.high >= old_klc.high
+        if new_klc.fx == FX_TYPE.BOTTOM:
+            return new_klc.low <= old_klc.low
         return False
 
     def update_bi(self, klc: CKLine, last_klc: CKLine, cal_virtual: bool) -> bool:
@@ -94,13 +106,41 @@ class CBiList:
             return self.try_create_first_bi(klc)
         if klc.fx == self.last_end.fx:
             return self.try_update_end(klc)
-        elif self.can_make_bi(klc, self.last_end):
+        else:
+            self.try_replace_last_end_before_opposite(klc)
+        if self.can_make_bi(klc, self.last_end):
             self.add_new_bi(self.last_end, klc)
             self.last_end = klc
             return True
         elif self.update_peak(klc):
             return True
         return _tmp_end != self.get_last_klu_of_last_bi()
+
+    def try_replace_last_end_before_opposite(self, opposite_klc: CKLine) -> bool:
+        if len(self.bi_list) == 0 or self.last_end is None:
+            return False
+        replacement = self.find_better_same_fx_before_opposite(opposite_klc)
+        if replacement is None:
+            return False
+        last_bi = self.bi_list[-1]
+        if last_bi.end_klc.idx != self.last_end.idx:
+            return False
+        if not self.can_make_bi(opposite_klc, replacement):
+            return False
+        last_bi.update_new_end(replacement)
+        self.last_end = replacement
+        return True
+
+    def find_better_same_fx_before_opposite(self, opposite_klc: CKLine) -> Optional[CKLine]:
+        replacement = None
+        current = self.last_end.next
+        while current is not None and current.idx < opposite_klc.idx:
+            if current.fx == self.last_end.fx and self.is_better_same_fx(current, self.last_end):
+                can_make = self.can_make_bi(opposite_klc, current)
+                if can_make:
+                    replacement = current
+            current = current.next
+        return replacement
 
     def delete_virtual_bi(self):
         if len(self) > 0 and not self.bi_list[-1].is_sure:
