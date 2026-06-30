@@ -196,10 +196,17 @@ def _render_markdown_file(md_path: Path, display_path: str) -> str:
 
 
 def _segment_v2_md_html() -> str:
-    repo_root = Path(__file__).resolve().parents[1]
-    return _render_markdown_file(
-        repo_root / "docs" / "line" / "线段v2.0.md",
-        "docs/line/线段v2.0.md",
+    return (
+        '<article class="logic-md-doc">'
+        '<h2>线段v2.0 标准情况</h2>'
+        '<p><code>chan_v2</code> 按特征序列第一元素和第二元素之间是否有缺口，'
+        '直接区分标准情况一和标准情况二。</p>'
+        '<ul>'
+        '<li>标准情况一：第一元素和第二元素之间无缺口，分型成立即可确认线段结束。</li>'
+        '<li>标准情况二：第一元素和第二元素之间有缺口，需要后续反向特征序列出现分型后确认。</li>'
+        '<li>下游中枢和买卖点仍基于实际生成的线段结果继续计算。</li>'
+        '</ul>'
+        '</article>'
     )
 
 
@@ -608,11 +615,12 @@ window.addEventListener('message', function(event) {{
         component_pens: List[Dict[str, Any]],
         all_pens: List[Dict[str, Any]],
         direction: str,
+        has_gap: bool,
     ) -> Dict[str, str]:
         seg_config = getattr(getattr(getattr(meta, "data", None), "seg_list", None), "config", None)
         if getattr(seg_config, "seg_algo", None) != "chan_v2":
             return {}
-        return classify_segment_v2_mode(label, component_pens, all_pens, direction)
+        return classify_segment_v2_mode(label, component_pens, all_pens, direction, has_gap=has_gap)
 
     @staticmethod
     def _logic_content_html() -> str:
@@ -770,7 +778,7 @@ window.addEventListener('message', function(event) {{
   </section>
   <section class="logic-tab-panel" data-logic-panel="segment">
     <h2>6. 段划分逻辑</h2>
-    <p>段是在已经生成的笔列表上继续划分出来的更高一级结构。页面上方可以切换 <code>seg_algo</code>；默认 <code>chan</code> 使用当前稳定的特征序列逻辑，<code>chan_v2</code> 会按线段v2.0口径保留第一、第二特征元素的缺口关系，因此画出的线段可能不同。</p>
+    <p>段是在已经生成的笔列表上继续划分出来的更高一级结构。页面上方可以切换 <code>seg_algo</code>；默认 <code>chan</code> 使用当前稳定的特征序列逻辑，<code>chan_v2</code> 会按线段v2.0口径保留第一、第二特征元素的缺口关系，并直接按标准情况一或标准情况二输出形态分类。</p>
     <div class="logic-grid">
       <div class="logic-card">
         <h3>输入对象</h3>
@@ -1039,11 +1047,11 @@ for bi in begin_next ... window_end:
           </tr>
           <tr>
             <td><code>chan_v2</code></td>
-            <td>线段 v2.0 口径的独立实验算法。</td>
+            <td>线段 v2.0 口径的标准情况算法。</td>
             <td>保留 <code>chan</code> 的特征序列主干，但第一、第二特征序列元素不先做包含合并，优先保留两者之间的缺口/无缺口关系，再进入后续分型和确认流程。</td>
-            <td>当第一、第二特征元素形成的特征序列分型带缺口时，需要后续反向确认；缺口关系不会因为一开始的包含合并被抹掉，更贴近“有缺口需要二次确认、线段只能被线段破坏”的解释口径。</td>
-            <td>适合对照线段 v2.0 文档、检查缺口导致的线段端点变化、分析为什么同一批笔在不同算法下段线不同。</td>
-            <td>这是新增算法，输出可能不同于默认 <code>chan</code>；下游线段中枢、线段买卖点也会随之变化，建议与 <code>chan</code> 并行对照。</td>
+            <td>无缺口时输出标准情况一；有缺口时输出标准情况二，并等待后续反向特征序列出现分型后确认。</td>
+            <td>适合检查缺口导致的线段端点变化、分析为什么同一批笔在不同算法下段线不同。</td>
+            <td>输出可能不同于默认 <code>chan</code>；下游线段中枢、线段买卖点也会随之变化，建议与 <code>chan</code> 并行对照。</td>
           </tr>
           <tr>
             <td><code>chan_doubao</code></td>
@@ -1202,7 +1210,14 @@ for bi in begin_next ... window_end:
                     "相邻线段首尾相接，线段端点取自笔端点，不直接连接原始K线。"
                 ),
             ]
-            v2_mode = self._classify_segment_v2_mode(label, meta, component_pens, pen_rows, direction)
+            v2_mode = self._classify_segment_v2_mode(
+                label,
+                meta,
+                component_pens,
+                pen_rows,
+                direction,
+                has_gap=bool(getattr(seg, "eigen_gap", False)),
+            )
             if v2_mode:
                 notes.append(v2_mode["desc"])
             if component_pens:

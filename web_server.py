@@ -696,7 +696,7 @@ iframe {{
         </select>
         <select id="seg-algo-select" name="seg_algo" title="切换线段划分算法">
           <option value="chan">线段 chan</option>
-          <option value="chan_v2" selected>线段 v2.0</option>
+          <option value="chan_v2" selected>线段 v2.0 标准情况</option>
           <option value="chan_doubao">线段 doubao</option>
           <option value="chan_doubao2">线段 doubao2</option>
           <option value="chan_doubao3">线段 doubao3</option>
