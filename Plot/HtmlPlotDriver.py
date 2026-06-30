@@ -198,12 +198,16 @@ def _render_markdown_file(md_path: Path, display_path: str) -> str:
 def _segment_v2_md_html() -> str:
     return (
         '<article class="logic-md-doc">'
-        '<h2>线段v2.0 标准情况</h2>'
-        '<p><code>chan_v2</code> 按特征序列第一元素和第二元素之间是否有缺口，'
-        '直接区分标准情况一和标准情况二。</p>'
+        '<h2>线段v2.0 标准情况与端点替代</h2>'
+        '<p><code>chan_v2</code> 仍按特征序列第一元素和第二元素之间是否有缺口，'
+        '标记标准情况一和标准情况二；但有无缺口不再决定是否立即结束线段。</p>'
         '<ul>'
-        '<li>标准情况一：第一元素和第二元素之间无缺口，分型成立即可确认线段结束。</li>'
-        '<li>标准情况二：第一元素和第二元素之间有缺口，需要后续反向特征序列出现分型后确认。</li>'
+        '<li>标准情况一：第一元素和第二元素之间无缺口；分型成立后仍继续寻找相反特征分型确认。</li>'
+        '<li>标准情况二：第一元素和第二元素之间有缺口；同样继续寻找相反特征分型确认。</li>'
+        '<li>寻找相反特征分型过程中，如果出现更高顶分型或更低底分型，同类候选端点会替代前一个同类候选端点。</li>'
+        '<li>两个同类候选之间若出现相反特征分型，会取其中最极端者；它与最新同类候选至少相隔3笔时，才替代之前的相反分型候选。</li>'
+        '<li>如果这个中间相反极值与最新同类候选不足3笔，则不替代之前的相反分型候选，仅保留同类端点更新结果。</li>'
+        '<li>线段列表备注会列出同类端点替代、相反候选替代和至少3笔校验过程。</li>'
         '<li>下游中枢和买卖点仍基于实际生成的线段结果继续计算。</li>'
         '</ul>'
         '</article>'
@@ -1220,6 +1224,9 @@ for bi in begin_next ... window_end:
             )
             if v2_mode:
                 notes.append(v2_mode["desc"])
+            extra_notes = list(getattr(seg, "extra_notes", []))
+            if extra_notes:
+                notes.extend(extra_notes)
             if component_pens:
                 pen_parts = []
                 for pen in component_pens:
