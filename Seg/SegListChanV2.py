@@ -54,11 +54,11 @@ def classify_segment_v2_mode(
     if has_gap:
         return {
             "mode": "标准情况二",
-            "desc": "线段v2.0形态分类：标准情况二；特征序列第一元素和第二元素之间有缺口。当前版本仍会继续寻找相反特征分型，并在过程中检查同类更极端特征分型是否可替代候选端点。",
+            "desc": "线段v2.0形态分类：标准情况二；特征序列第一元素和第二元素之间有缺口。当前版本仍会继续寻找相反特征分型，并在过程中检查同类更极端特征分型或同向更极端笔端点是否可替代候选端点。",
         }
     return {
         "mode": "标准情况一",
-        "desc": "线段v2.0形态分类：标准情况一；特征序列第一元素和第二元素之间无缺口。当前版本不再立即确认线段结束，而是继续寻找相反特征分型，并在过程中检查同类更极端特征分型是否可替代候选端点。",
+        "desc": "线段v2.0形态分类：标准情况一；特征序列第一元素和第二元素之间无缺口。当前版本不再立即确认线段结束，而是继续寻找相反特征分型，并在过程中检查同类更极端特征分型或同向更极端笔端点是否可替代候选端点。",
     }
 
 
@@ -129,6 +129,13 @@ class CEigenFXV2(CEigenFX):
             return event.price < base.price
         return event.price > base.price
 
+    @staticmethod
+    def _eigen_peak_bi_idx(eigen: CEigen) -> int:
+        bi_dir = eigen.lst[0].dir
+        if bi_dir == BI_DIR.UP:
+            return eigen.get_peak_klu(is_high=False).idx - 1
+        return eigen.get_peak_klu(is_high=True).idx - 1
+
     def _make_fx_event(self, eigen_fx: "CEigenFXV2") -> _V2FxEvent:
         peak_bi_idx = eigen_fx.GetPeakBiIdx()
         assert eigen_fx.ele[2] is not None
@@ -156,8 +163,24 @@ class CEigenFXV2(CEigenFX):
                         break
         return events
 
+    def _collect_same_endpoint_events(self, bi_list, begin_idx: int) -> List[_V2FxEvent]:
+        events: List[_V2FxEvent] = []
+        if begin_idx >= len(bi_list):
+            return events
+        for bi in bi_list[begin_idx:]:
+            if bi.dir != self.dir:
+                continue
+            events.append(_V2FxEvent(
+                seg_dir=self.dir,
+                peak_bi_idx=bi.idx,
+                evidence_bi_idx=bi.idx,
+                price=bi.get_end_val(),
+                all_sure=bi.is_used_to_be_sure,
+            ))
+        return events
+
     def can_be_end(self, bi_lst):
-        assert self.ele[1] is not None
+        assert self.ele[0] is not None and self.ele[1] is not None
         self.final_end_bi_idx = self.GetPeakBiIdx()
         self.v2_notes = []
         self.v2_final_all_sure = None
@@ -166,6 +189,29 @@ class CEigenFXV2(CEigenFX):
             f"chan_v2统一确认：第一、第二特征元素{gap_text}，初始候选{self._dir_fx_label(self.dir)}"
             f"位于第{self.final_end_bi_idx + 1}笔；不直接结束，继续寻找相反特征分型并检查同类更极端替代。"
         )
+        first_event = _V2FxEvent(
+            seg_dir=self.dir,
+            peak_bi_idx=self._eigen_peak_bi_idx(self.ele[0]),
+            evidence_bi_idx=self.ele[0].lst[-1].idx,
+            price=self.ele[0].high if self.dir == BI_DIR.UP else self.ele[0].low,
+            all_sure=next((False for bi in self.ele[0].lst if not bi.is_used_to_be_sure), True),
+        )
+        initial_event = _V2FxEvent(
+            seg_dir=self.dir,
+            peak_bi_idx=self.final_end_bi_idx,
+            evidence_bi_idx=self.ele[1].lst[-1].idx,
+            price=self.ele[1].high if self.dir == BI_DIR.UP else self.ele[1].low,
+            all_sure=next((False for bi in self.ele[1].lst if not bi.is_used_to_be_sure), True),
+        )
+        if (
+            initial_event.peak_bi_idx > first_event.peak_bi_idx
+            and self._is_more_extreme_event(initial_event, first_event)
+        ):
+            self.v2_notes.append(
+                f"初始特征分型已包含同类更极端替代：第{first_event.peak_bi_idx + 1}笔"
+                f"替换为第{initial_event.peak_bi_idx + 1}笔，线段候选端点取最新"
+                f"{self._dir_fx_label(self.dir)}。"
+            )
         return self.find_revert_fx(bi_lst, self.final_end_bi_idx + 2, 0, 0)
 
     def find_revert_fx(self, bi_list, begin_idx: int, thred_value: float, break_thred: float):
@@ -196,11 +242,16 @@ class CEigenFXV2(CEigenFX):
             event for event in self._collect_fx_events(bi_list, self.dir, same_begin_idx)
             if event.evidence_bi_idx > initial_event.evidence_bi_idx and event.peak_bi_idx > initial_event.peak_bi_idx
         ]
+        same_endpoint_events = [
+            event for event in self._collect_same_endpoint_events(bi_list, initial_event.peak_bi_idx + 1)
+            if event.evidence_bi_idx > initial_event.evidence_bi_idx and self._is_more_extreme_event(event, initial_event)
+        ]
         reverse_events = self._collect_fx_events(bi_list, reverse_dir, begin_idx)
         events = sorted(
             [(event.evidence_bi_idx, "same", event) for event in same_events] +
+            [(event.evidence_bi_idx, "same_endpoint", event) for event in same_endpoint_events] +
             [(event.evidence_bi_idx, "reverse", event) for event in reverse_events],
-            key=lambda item: (item[0], 0 if item[1] == "same" else 1),
+            key=lambda item: (item[0], 0 if item[1] in ("same", "same_endpoint") else 1),
         )
 
         reverse_candidate: Optional[_V2FxEvent] = None
@@ -239,10 +290,16 @@ class CEigenFXV2(CEigenFX):
             current_event = event
             current_all_sure = event.all_sure
             self.final_end_bi_idx = event.peak_bi_idx
-            self.v2_notes.append(
-                f"发现更极端同类{self._dir_fx_label(self.dir)}：第{old_event.peak_bi_idx + 1}笔"
-                f"替换为第{event.peak_bi_idx + 1}笔，线段候选端点更新。"
-            )
+            if kind == "same_endpoint":
+                self.v2_notes.append(
+                    f"发现同向更极端笔端点：第{old_event.peak_bi_idx + 1}笔"
+                    f"替换为第{event.peak_bi_idx + 1}笔，线段候选端点更新。"
+                )
+            else:
+                self.v2_notes.append(
+                    f"发现更极端同类{self._dir_fx_label(self.dir)}：第{old_event.peak_bi_idx + 1}笔"
+                    f"替换为第{event.peak_bi_idx + 1}笔，线段候选端点更新。"
+                )
             if opposite_extreme is not None:
                 span = self._event_bi_span(opposite_extreme, event)
                 if not self._event_has_three_bi(opposite_extreme, event):
@@ -331,7 +388,7 @@ class CSegListChanV2(CSegListChan):
 
     def treat_fx_eigen(self, fx_eigen, bi_lst):
         _test = fx_eigen.can_be_end(bi_lst)
-        end_bi_idx = fx_eigen.final_end_bi_idx or fx_eigen.GetPeakBiIdx()
+        end_bi_idx = fx_eigen.final_end_bi_idx if fx_eigen.final_end_bi_idx is not None else fx_eigen.GetPeakBiIdx()
         if _test in [True, None]:
             is_true = _test is not None
             assert fx_eigen.ele[1] is not None
