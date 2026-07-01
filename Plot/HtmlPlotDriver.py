@@ -370,6 +370,57 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
   box-shadow:0 10px 28px rgba(0,0,0,.28); color:#e5e7eb; font-size:12px;
   pointer-events:none;
 }}
+.seg-note-popover {{
+  position:fixed;
+  z-index:50;
+  display:none;
+  width:min(675px, calc(100vw - 28px));
+  height:360px;
+  min-width:360px;
+  min-height:180px;
+  max-width:calc(100vw - 16px);
+  max-height:calc(100vh - 16px);
+  overflow:auto;
+  resize:both;
+  border:1px solid #d0d5dd;
+  border-radius:6px;
+  background:#fff;
+  box-shadow:0 16px 42px rgba(16,24,40,.22);
+  color:#101828;
+  font-size:13px;
+  line-height:1.55;
+}}
+.seg-note-popover.active {{ display:block; }}
+.seg-note-popover-head {{
+  position:sticky;
+  top:0;
+  z-index:1;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:7px 9px;
+  border-bottom:1px solid #e4e7ec;
+  background:#eef2f6;
+  cursor:move;
+  user-select:none;
+}}
+.seg-note-popover-title {{ font-weight:700; }}
+.seg-note-popover-close {{
+  width:24px;
+  height:24px;
+  padding:0;
+  border:0;
+  border-radius:3px;
+  background:transparent;
+  color:#344054;
+  cursor:pointer;
+  font-size:18px;
+  line-height:1;
+}}
+.seg-note-popover-close:hover {{ background:#d0d5dd; }}
+.seg-note-popover-body {{ padding:9px 12px 11px; }}
+.seg-note-popover-body ol {{ margin:0; padding-left:18px; }}
 .legend {{ display:flex; gap:14px; flex-wrap:wrap; color:#98a2b3; font-size:12px; margin-top:8px; }}
 .swatch {{ display:inline-block; width:10px; height:10px; margin-right:5px; vertical-align:-1px; }}
 .logic-source {{ display:none; }}
@@ -452,7 +503,8 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
 .data-table tr.focused-row {{ outline:2px solid #1570ef; outline-offset:-2px; background:#eff8ff; }}
 .note-cell {{ min-width:380px; line-height:1.55; }}
 .note-cell ol {{ margin:0; padding-left:18px; }}
-.fx-note-ref {{
+.fx-note-ref,
+.pen-note-ref {{
   display:inline;
   height:auto;
   min-width:0;
@@ -465,7 +517,8 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
   font-weight:700;
   cursor:pointer;
 }}
-.fx-note-ref:hover {{ background:#fef3c7; }}
+.fx-note-ref:hover,
+.pen-note-ref:hover {{ background:#fef3c7; }}
 .detail-panel {{ max-width:980px; margin:0 auto; background:#fff; border:1px solid var(--line); border-radius:6px; padding:22px; }}
 .detail-panel h1 {{ margin-bottom:12px; }}
 .detail-panel h2 {{ margin:20px 0 8px; font-size:17px; }}
@@ -601,11 +654,26 @@ window.addEventListener('message', function(event) {{
         return "<ol>" + "".join(f"<li>{render_note(note)}</li>" for note in notes) + "</ol>"
 
     @staticmethod
-    def _fx_note_ref(row: Dict[str, Any], prefix: str = "") -> str:
-        text = f'{prefix}{row["date"]} {_fx_label(row["kind"])} #{row["idx"]} {_fmt_num(row["price"])}'
+    def _fx_note_ref(
+        row: Dict[str, Any],
+        prefix: str = "",
+        pen_row: Optional[Dict[str, Any]] = None,
+        text: Optional[str] = None,
+    ) -> str:
+        text = text or f'{prefix}{row["date"]} {_fx_label(row["kind"])} #{row["idx"]} {_fmt_num(row["price"])}'
         title = f'高亮 {row["date"]} {_fx_label(row["kind"])}'
+        pen_attr = f' data-pen-ref="{pen_row["idx"]}"' if pen_row else ""
         return (
-            f'<button class="fx-note-ref" type="button" data-fx-ref="{row["idx"]}" '
+            f'<button class="fx-note-ref" type="button" data-fx-ref="{row["idx"]}"{pen_attr} '
+            f'title="{html.escape(title)}">{html.escape(text)}</button>'
+        )
+
+    @staticmethod
+    def _pen_note_ref(row: Dict[str, Any], text: Optional[str] = None) -> str:
+        text = text or f'第{row["idx"]}笔'
+        title = f'高亮第{row["idx"]}笔'
+        return (
+            f'<button class="pen-note-ref" type="button" data-pen-ref="{row["idx"]}" '
             f'title="{html.escape(title)}">{html.escape(text)}</button>'
         )
 
@@ -1185,6 +1253,7 @@ for bi in begin_next ... window_end:
             })
 
         pen_by_source_idx = {row["source_idx"]: row for row in pen_rows}
+        pen_by_display_idx = {row["idx"]: row for row in pen_rows}
         seg_rows: List[Dict[str, Any]] = []
         for i, seg in enumerate(meta.seg_list):
             direction = "up" if seg.dir == BI_DIR.UP else "down"
@@ -1228,18 +1297,6 @@ for bi in begin_next ... window_end:
             extra_notes = list(getattr(seg, "extra_notes", []))
             if extra_notes:
                 notes.extend(extra_notes)
-            if component_pens:
-                pen_parts = []
-                for pen in component_pens:
-                    pen_parts.append(
-                        f'第{pen["idx"]}笔：{_dir_label(pen["direction"])}，'
-                        f'{_fx_label(pen["begin_kind"])} {html.escape(pen["begin_date"])} '
-                        f'{_fmt_num(pen["begin_price"])} → '
-                        f'{_fx_label(pen["end_kind"])} {html.escape(pen["end_date"])} '
-                        f'{_fmt_num(pen["end_price"])}，'
-                        f'跨度{pen["kl_cnt"]}根，状态{html.escape(pen["status"])}'
-                    )
-                notes.append({"html": "<br>".join(pen_parts)})
             if not seg.is_sure:
                 notes.append("最后线段未确认，后续新笔可能继续改写线段终点或方向。")
             seg_rows.append({
@@ -1300,6 +1357,69 @@ for bi in begin_next ... window_end:
             })
         valid_rows = [row for row in fx_rows if row["status"] == "有效"]
         row_by_klc_idx = {row["klc_idx"]: row for row in fx_rows}
+
+        def endpoint_fx_for_pen(pen: Dict[str, Any], kind: str) -> Optional[Dict[str, Any]]:
+            if pen["begin_kind"] == kind:
+                return row_by_klc_idx.get(pen["begin_klc_idx"])
+            if pen["end_kind"] == kind:
+                return row_by_klc_idx.get(pen["end_klc_idx"])
+            return None
+
+        def note_refs_html(text: str) -> str:
+            pattern = re.compile(r"((顶分型|底分型)[：:，,、\s]*(?:位于)?第(\d+)笔)|第(\d+)笔")
+            parts: List[str] = []
+            pos = 0
+            for match in pattern.finditer(text):
+                parts.append(html.escape(text[pos:match.start()]))
+                kind_text = match.group(2)
+                pen_idx = int(match.group(3) or match.group(4))
+                pen = pen_by_display_idx.get(pen_idx)
+                if pen and kind_text:
+                    kind = "top" if kind_text == "顶分型" else "bottom"
+                    fx_row = endpoint_fx_for_pen(pen, kind)
+                    if fx_row:
+                        parts.append(self._fx_note_ref(fx_row, pen_row=pen, text=match.group(0)))
+                    else:
+                        parts.append(self._pen_note_ref(pen, text=match.group(0)))
+                elif pen:
+                    parts.append(self._pen_note_ref(pen, text=match.group(0)))
+                else:
+                    parts.append(html.escape(match.group(0)))
+                pos = match.end()
+            parts.append(html.escape(text[pos:]))
+            return "".join(parts)
+
+        def hydrate_note_refs(note: Any) -> Any:
+            if isinstance(note, dict) and "html" in note:
+                return {"html": note_refs_html(str(note["html"])).replace("&lt;br&gt;", "<br>")}
+            return {"html": note_refs_html(str(note))}
+
+        for seg_row in seg_rows:
+            seg_row["notes"] = [hydrate_note_refs(note) for note in seg_row["notes"]]
+            component_pens = [
+                pen_by_source_idx[bi_idx]
+                for bi_idx in range(seg_row["begin_bi_idx"], seg_row["end_bi_idx"] + 1)
+                if bi_idx in pen_by_source_idx
+            ]
+            if component_pens:
+                pen_parts = []
+                for pen in component_pens:
+                    begin_row = row_by_klc_idx.get(pen["begin_klc_idx"])
+                    end_row = row_by_klc_idx.get(pen["end_klc_idx"])
+                    begin_ref = (
+                        self._fx_note_ref(begin_row, pen_row=pen)
+                        if begin_row else f'{_fx_label(pen["begin_kind"])} {html.escape(pen["begin_date"])} {_fmt_num(pen["begin_price"])}'
+                    )
+                    end_ref = (
+                        self._fx_note_ref(end_row, pen_row=pen)
+                        if end_row else f'{_fx_label(pen["end_kind"])} {html.escape(pen["end_date"])} {_fmt_num(pen["end_price"])}'
+                    )
+                    pen_parts.append(
+                        f'{self._pen_note_ref(pen)}：{_dir_label(pen["direction"])}，'
+                        f'{begin_ref} → {end_ref}，'
+                        f'跨度{pen["kl_cnt"]}根，状态{html.escape(pen["status"])}'
+                    )
+                seg_row["notes"].append({"html": "<br>".join(pen_parts)})
 
         def totally_check_result(start: Dict[str, Any], end: Dict[str, Any]) -> tuple[Optional[bool], str]:
             if start["kind"] == "top" and end["kind"] == "bottom":
@@ -1454,6 +1574,10 @@ for bi in begin_next ... window_end:
         fx_rows, pen_rows, seg_rows = self._build_report_rows(meta, label)
         input_type = self._time_input_type(label)
         input_title = "选择交易日期" if input_type == "date" else "选择交易日期和分钟"
+        seg_config = getattr(getattr(getattr(meta, "data", None), "seg_list", None), "config", None)
+        pen_default_collapsed = getattr(seg_config, "seg_algo", None) == "chan_v2"
+        pen_table_style = ' style="display:none"' if pen_default_collapsed else ""
+        pen_collapse_text = "展开" if pen_default_collapsed else "收起"
 
         fx_body = []
         for row in fx_rows:
@@ -1522,10 +1646,10 @@ for bi in begin_next ... window_end:
         <input id="goto-{chart_id}" type="{input_type}" title="{input_title}">
         <button id="goto-btn-{chart_id}" type="button">确定</button>
       </div>
-      <button class="collapse-btn" type="button" data-collapse="fx-table-{chart_id}">收起</button>
+      <button class="collapse-btn" type="button" data-collapse="fx-table-{chart_id}">展开</button>
     </div>
   </div>
-  <div id="fx-table-{chart_id}" class="table-wrap">
+  <div id="fx-table-{chart_id}" class="table-wrap" style="display:none">
     <table class="data-table">
       <thead><tr><th>#</th><th>日期</th><th>类型</th><th>分型价格</th><th>分型最高</th><th>分型最低</th><th>状态</th><th>备注</th></tr></thead>
       <tbody>{"".join(fx_body) if fx_body else '<tr><td colspan="8">暂无分型</td></tr>'}</tbody>
@@ -1538,10 +1662,10 @@ for bi in begin_next ... window_end:
   <div class="section-head">
     <h2>笔列表（候选{len(pen_rows)}笔，有效{sum(1 for row in pen_rows if row["status"] == "有效")}笔）</h2>
     <div class="section-actions">
-      <button class="collapse-btn" type="button" data-collapse="pen-table-{chart_id}">收起</button>
+      <button class="collapse-btn" type="button" data-collapse="pen-table-{chart_id}">{pen_collapse_text}</button>
     </div>
   </div>
-  <div id="pen-table-{chart_id}" class="table-wrap">
+  <div id="pen-table-{chart_id}" class="table-wrap"{pen_table_style}>
     <table class="data-table">
       <thead><tr><th>#</th><th>方向</th><th>起点日期</th><th>起点类型</th><th>起点价格</th><th>终点日期</th><th>终点类型</th><th>终点价格</th><th>K线间隔</th><th>价差</th><th>状态</th><th>备注</th></tr></thead>
       <tbody>{"".join(pen_body) if pen_body else '<tr><td colspan="12">暂无笔</td></tr>'}</tbody>
@@ -1977,6 +2101,13 @@ for bi in begin_next ... window_end:
   <div id="wrap-{chart_id}" class="chart-wrap" tabindex="0" aria-label="{html.escape(label)} K线图">
     {"".join(svg)}
     <div id="tooltip-{chart_id}" class="tooltip"></div>
+    <div id="seg-note-popover-{chart_id}" class="seg-note-popover" role="dialog" aria-label="线段备注">
+      <div id="seg-note-popover-head-{chart_id}" class="seg-note-popover-head">
+        <span id="seg-note-popover-title-{chart_id}" class="seg-note-popover-title">线段备注</span>
+        <button id="seg-note-popover-close-{chart_id}" class="seg-note-popover-close" type="button" aria-label="关闭">×</button>
+      </div>
+      <div id="seg-note-popover-body-{chart_id}" class="seg-note-popover-body"></div>
+    </div>
   </div>
   <div class="legend">
     <span><i class="swatch" style="background:#d64b3c"></i>上涨K线</span>
@@ -2024,6 +2155,11 @@ var eigenToggle = document.getElementById('eigen-toggle-{chart_id}');
 var fractalDetailLayer = document.getElementById('fractal-detail-layer-{chart_id}');
 var fractalRangeLayer = document.getElementById('fractal-range-layer-{chart_id}');
 var fractalRefLayer = document.getElementById('fractal-ref-layer-{chart_id}');
+var segNotePopover = document.getElementById('seg-note-popover-{chart_id}');
+var segNotePopoverHead = document.getElementById('seg-note-popover-head-{chart_id}');
+var segNotePopoverTitle = document.getElementById('seg-note-popover-title-{chart_id}');
+var segNotePopoverBody = document.getElementById('seg-note-popover-body-{chart_id}');
+var segNotePopoverClose = document.getElementById('seg-note-popover-close-{chart_id}');
 var crosshair = document.getElementById('crosshair-{chart_id}');
 var crosshairV = document.getElementById('crosshair-v-{chart_id}');
 var crosshairH = document.getElementById('crosshair-h-{chart_id}');
@@ -2041,6 +2177,7 @@ var maxViewW = Math.max(totalWidth, minViewW);
 var crosshairEnabled = false;
 var crosshairPoint = null;
 var isPanning = false, panStartX = 0, panStartY = 0, panOriginX = 0, panOriginY = 0;
+var isDraggingSegNote = false, segNoteDragStartX = 0, segNoteDragStartY = 0, segNoteStartLeft = 0, segNoteStartTop = 0;
 var panFrame = null, pendingPanOriginX = originX, pendingPanOriginY = originY;
 var zoomFrame = null, zoomEndTimer = null, pendingZoomFactor = 1, pendingZoomRx = 0.5, pendingZoomRy = 0.5;
 var hoverFrame = null, pendingHoverEvent = null, lastTipIdx = -1;
@@ -2408,10 +2545,11 @@ function highlightFxRow(rowId) {{
   var rowTop = row.offsetTop;
   tableWrap.scrollTop = Math.max(0, rowTop - tableWrap.clientHeight * 0.42);
 }}
-function highlightPenRow(rowId) {{
+function highlightPenRow(rowId, revealTable) {{
+  revealTable = revealTable !== false;
   var row = panelRoot.querySelector('tr[data-pen-row="' + rowId + '"]');
   var tableWrap = document.getElementById('pen-table-{chart_id}');
-  if (!row || !tableWrap) return;
+  if (!row && !tableWrap) return;
   panelRoot.querySelectorAll('tr.focused-row').forEach(function(x) {{ x.classList.remove('focused-row'); }});
   clearSegHighlight();
   panelRoot.querySelectorAll('.chart-pen-line.focused-pen').forEach(function(x) {{
@@ -2419,15 +2557,17 @@ function highlightPenRow(rowId) {{
     x.setAttribute('stroke-width', '1.25');
     x.setAttribute('opacity', '.72');
   }});
-  row.classList.add('focused-row');
+  if (row) row.classList.add('focused-row');
   var penLine = panelRoot.querySelector('.chart-pen-line[data-pen-row="' + rowId + '"]');
   if (penLine) {{
     penLine.classList.add('focused-pen');
     penLine.setAttribute('stroke-width', '2.6');
     penLine.setAttribute('opacity', '1');
   }}
-  tableWrap.style.display = '';
-  tableWrap.scrollTop = Math.max(0, row.offsetTop - tableWrap.clientHeight * 0.42);
+  if (revealTable && tableWrap && row) {{
+    tableWrap.style.display = '';
+    tableWrap.scrollTop = Math.max(0, row.offsetTop - tableWrap.clientHeight * 0.42);
+  }}
 }}
 function clearSegHighlight() {{
   panelRoot.querySelectorAll('.chart-seg-line.focused-seg').forEach(function(x) {{
@@ -2435,6 +2575,20 @@ function clearSegHighlight() {{
     x.setAttribute('stroke-width', '2.4');
     x.setAttribute('opacity', '.72');
   }});
+}}
+function highlightPenOnChart(rowId) {{
+  clearSegHighlight();
+  panelRoot.querySelectorAll('.chart-pen-line.focused-pen').forEach(function(x) {{
+    x.classList.remove('focused-pen');
+    x.setAttribute('stroke-width', '1.25');
+    x.setAttribute('opacity', '.72');
+  }});
+  var penLine = panelRoot.querySelector('.chart-pen-line[data-pen-row="' + rowId + '"]');
+  if (penLine) {{
+    penLine.classList.add('focused-pen');
+    penLine.setAttribute('stroke-width', '2.6');
+    penLine.setAttribute('opacity', '1');
+  }}
 }}
 function highlightSegRow(rowId) {{
   var row = panelRoot.querySelector('tr[data-seg-row="' + rowId + '"]');
@@ -2500,6 +2654,62 @@ function highlightFractalOnChart(rowId) {{
   rectNode.setAttribute('rx', '1');
   fractalRefLayer.appendChild(rectNode);
 }}
+function bindNoteRefs(scope) {{
+  scope.querySelectorAll('.fx-note-ref[data-fx-ref]').forEach(function(btn) {{
+    btn.addEventListener('click', function(e) {{
+      e.preventDefault();
+      e.stopPropagation();
+      var penRef = btn.getAttribute('data-pen-ref');
+      if (penRef) highlightPenOnChart(penRef);
+      highlightFractalOnChart(btn.getAttribute('data-fx-ref'));
+    }});
+  }});
+  scope.querySelectorAll('.pen-note-ref[data-pen-ref]').forEach(function(btn) {{
+    btn.addEventListener('click', function(e) {{
+      e.preventDefault();
+      e.stopPropagation();
+      highlightPenOnChart(btn.getAttribute('data-pen-ref'));
+    }});
+  }});
+}}
+function clampSegNotePosition(leftPx, topPx) {{
+  var maxLeft = Math.max(8, window.innerWidth - segNotePopover.offsetWidth - 8);
+  var maxTop = Math.max(8, window.innerHeight - segNotePopover.offsetHeight - 8);
+  return {{
+    left: Math.max(8, Math.min(maxLeft, leftPx)),
+    top: Math.max(8, Math.min(maxTop, topPx))
+  }};
+}}
+function placeSegNoteNearSegment(rowId) {{
+  var seg = data.segments.find(function(item) {{ return String(item.row) === String(rowId); }});
+  var leftPx = 16;
+  var topPx = 16;
+  if (seg) {{
+    var r = rect();
+    var midX = (seg.x1 + seg.x2) * 0.5;
+    var midY = (seg.y1 + seg.y2) * 0.5;
+    leftPx = r.left + (midX - originX) / viewW * r.width + 14;
+    topPx = r.top + (midY - originY) / viewH * r.height + 14;
+  }}
+  var pos = clampSegNotePosition(leftPx, topPx);
+  segNotePopover.style.left = pos.left + 'px';
+  segNotePopover.style.top = pos.top + 'px';
+}}
+function openSegNotePopover(rowId) {{
+  if (!segNotePopover || !segNotePopoverBody) return;
+  var row = panelRoot.querySelector('tr[data-seg-row="' + rowId + '"]');
+  var noteCell = row && row.querySelector('.note-cell');
+  if (!noteCell) return;
+  segNotePopoverTitle.textContent = '线段 #' + rowId + ' 备注';
+  segNotePopoverBody.innerHTML = noteCell.innerHTML;
+  bindNoteRefs(segNotePopoverBody);
+  segNotePopover.classList.add('active');
+  placeSegNoteNearSegment(rowId);
+}}
+function closeSegNotePopover() {{
+  if (!segNotePopover) return;
+  segNotePopover.classList.remove('active');
+}}
 function handleFractalPick(rowId) {{
   highlightFxRow(rowId);
   markFractalRange(rowId);
@@ -2527,6 +2737,15 @@ wrap.addEventListener('mousedown', function(e) {{
   svg.style.cursor = 'grabbing';
 }});
 window.addEventListener('mousemove', function(e) {{
+  if (isDraggingSegNote) {{
+    var pos = clampSegNotePosition(
+      segNoteStartLeft + e.clientX - segNoteDragStartX,
+      segNoteStartTop + e.clientY - segNoteDragStartY
+    );
+    segNotePopover.style.left = pos.left + 'px';
+    segNotePopover.style.top = pos.top + 'px';
+    return;
+  }}
   if (isPanning) {{
     var r = rect();
     pendingPanOriginX = panOriginX + (panStartX - e.clientX) / r.width * viewW;
@@ -2537,6 +2756,7 @@ window.addEventListener('mousemove', function(e) {{
   scheduleHover(e);
 }}, {{signal:eventSignal}});
 window.addEventListener('mouseup', function() {{
+  isDraggingSegNote = false;
   finishPan();
   svg.style.cursor = 'grab';
 }}, {{signal:eventSignal}});
@@ -2571,6 +2791,11 @@ document.getElementById('clear-{chart_id}').addEventListener('click', function()
     node.classList.remove('fx-ref-active');
   }});
   clearSegHighlight();
+  panelRoot.querySelectorAll('.chart-pen-line.focused-pen').forEach(function(x) {{
+    x.classList.remove('focused-pen');
+    x.setAttribute('stroke-width', '1.25');
+    x.setAttribute('opacity', '.72');
+  }});
 }});
 klineToggle.addEventListener('click', function() {{
   var active = klineLayer.classList.toggle('active');
@@ -2587,6 +2812,24 @@ eigenToggle.addEventListener('click', function() {{
   eigenToggle.classList.toggle('active', active);
   eigenToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
 }});
+segNotePopoverClose.addEventListener('click', function(e) {{
+  e.preventDefault();
+  e.stopPropagation();
+  closeSegNotePopover();
+}});
+segNotePopover.addEventListener('mousedown', function(e) {{
+  e.stopPropagation();
+}});
+segNotePopoverHead.addEventListener('mousedown', function(e) {{
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  isDraggingSegNote = true;
+  segNoteDragStartX = e.clientX;
+  segNoteDragStartY = e.clientY;
+  segNoteStartLeft = parseFloat(segNotePopover.style.left || '0') || 0;
+  segNoteStartTop = parseFloat(segNotePopover.style.top || '0') || 0;
+}});
 panelRoot.querySelectorAll('[data-fx-row].chart-price-label,[data-fx-row].chart-fractal-marker').forEach(function(node) {{
   node.addEventListener('mousedown', function(e) {{
     e.stopPropagation();
@@ -2596,13 +2839,7 @@ panelRoot.querySelectorAll('[data-fx-row].chart-price-label,[data-fx-row].chart-
     handleFractalPick(node.getAttribute('data-fx-row'));
   }});
 }});
-panelRoot.querySelectorAll('.fx-note-ref[data-fx-ref]').forEach(function(btn) {{
-  btn.addEventListener('click', function(e) {{
-    e.preventDefault();
-    e.stopPropagation();
-    highlightFractalOnChart(btn.getAttribute('data-fx-ref'));
-  }});
-}});
+bindNoteRefs(panelRoot);
 panelRoot.querySelectorAll('.chart-pen-line[data-pen-row],.chart-pen-hit[data-pen-row]').forEach(function(line) {{
   line.addEventListener('mousedown', function(e) {{
     e.stopPropagation();
@@ -2619,9 +2856,8 @@ panelRoot.querySelectorAll('.chart-seg-line[data-seg-row],.chart-seg-hit[data-se
   line.addEventListener('click', function(e) {{
     e.stopPropagation();
     var rowId = line.getAttribute('data-seg-row');
-    var row = panelRoot.querySelector('tr[data-seg-row="' + rowId + '"]');
     highlightSegRow(rowId);
-    if (row) focusRange(row.getAttribute('data-seg-begin'), row.getAttribute('data-seg-end'), 36);
+    openSegNotePopover(rowId);
   }});
 }});
 panelRoot.querySelectorAll('tr[data-target-idx]').forEach(function(row) {{
@@ -2672,7 +2908,17 @@ document.getElementById('goto-btn-{chart_id}').addEventListener('click', functio
 document.getElementById('goto-{chart_id}').addEventListener('keydown', function(e) {{
   if (e.key === 'Enter') document.getElementById('goto-btn-{chart_id}').click();
 }});
-window.addEventListener('resize', updateZoomLabel, {{signal:eventSignal}});
+window.addEventListener('resize', function() {{
+  updateZoomLabel();
+  if (segNotePopover && segNotePopover.classList.contains('active')) {{
+    var pos = clampSegNotePosition(
+      parseFloat(segNotePopover.style.left || '8') || 8,
+      parseFloat(segNotePopover.style.top || '8') || 8
+    );
+    segNotePopover.style.left = pos.left + 'px';
+    segNotePopover.style.top = pos.top + 'px';
+  }}
+}}, {{signal:eventSignal}});
 resetView();
 rememberView();
 }})();
