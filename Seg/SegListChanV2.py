@@ -54,11 +54,11 @@ def classify_segment_v2_mode(
     if has_gap:
         return {
             "mode": "标准情况二",
-            "desc": "线段v2.0形态分类：标准情况二；特征序列第一元素和第二元素之间有缺口。当前版本仍会继续寻找相反特征分型，并在过程中检查同类更极端特征分型或同向更极端笔端点是否可替代候选端点。",
+            "desc": "线段v2.0形态分类：标准情况二；特征序列第一元素和第二元素之间有缺口。当前版本仍会继续寻找相反特征分型，并在过程中检查同类更极端特征分型或同向更极端笔端点是否可替代候选端点；若同向更极端笔端点正好确认相反特征分型，则相反特征分型优先确认线段。",
         }
     return {
         "mode": "标准情况一",
-        "desc": "线段v2.0形态分类：标准情况一；特征序列第一元素和第二元素之间无缺口。当前版本不再立即确认线段结束，而是继续寻找相反特征分型，并在过程中检查同类更极端特征分型或同向更极端笔端点是否可替代候选端点。",
+        "desc": "线段v2.0形态分类：标准情况一；特征序列第一元素和第二元素之间无缺口。当前版本不再立即确认线段结束，而是继续寻找相反特征分型，并在过程中检查同类更极端特征分型或同向更极端笔端点是否可替代候选端点；若同向更极端笔端点正好确认相反特征分型，则相反特征分型优先确认线段。",
     }
 
 
@@ -218,7 +218,8 @@ class CEigenFXV2(CEigenFX):
         """
         v2 统一确认：无论第一、第二特征元素是否有缺口，都继续寻找相反
         特征分型；寻找过程中若出现更极端同类特征分型，按中间反向极值
-        与最新同类分型至少三笔的规则判断是否替代候选端点。
+        与最新同类分型至少三笔的规则判断是否替代候选端点。同向更极端
+        笔端点若正好作为相反特征分型的确认笔，则相反特征分型优先。
         """
         assert self.ele[1] is not None and self.ele[2] is not None
         assert self.final_end_bi_idx is not None
@@ -280,6 +281,39 @@ class CEigenFXV2(CEigenFX):
                 return True
             if not self._is_more_extreme_event(event, current_event):
                 continue
+
+            if kind == "same_endpoint":
+                exact_reverse_events = [
+                    reverse_event for reverse_event in reverse_events
+                    if (
+                        reverse_event.evidence_bi_idx == event.evidence_bi_idx
+                        and current_event.peak_bi_idx < reverse_event.peak_bi_idx < event.peak_bi_idx
+                    )
+                ]
+                exact_reverse = self._pick_opposite_extreme(exact_reverse_events, self.dir)
+                if exact_reverse is not None:
+                    span = self._event_bi_span(current_event, exact_reverse)
+                    if self._event_has_three_bi(current_event, exact_reverse):
+                        self.last_evidence_bi = bi_list[exact_reverse.evidence_bi_idx]
+                        self.last_evidence_bi_is_sure = exact_reverse.all_sure
+                        self.v2_final_all_sure = current_all_sure and exact_reverse.all_sure
+                        self.v2_notes.append(
+                            f"发现同向更极端笔端点：第{event.peak_bi_idx + 1}笔；"
+                            f"该笔正好确认相反{self._opposite_fx_label(self.dir)}"
+                            f"第{exact_reverse.peak_bi_idx + 1}笔，价格{exact_reverse.price:g}；"
+                            f"其与当前{self._dir_fx_label(self.dir)}第{current_event.peak_bi_idx + 1}笔"
+                            f"跨度{span}笔，满足至少3笔，相反特征分型优先，"
+                            f"不替代线段候选端点，并以前一个同类{self._dir_fx_label(self.dir)}"
+                            f"第{current_event.peak_bi_idx + 1}笔作为线段端点。"
+                        )
+                        return True
+                    self.v2_notes.append(
+                        f"发现同向更极端笔端点：第{event.peak_bi_idx + 1}笔；"
+                        f"该笔正好形成相反{self._opposite_fx_label(self.dir)}"
+                        f"第{exact_reverse.peak_bi_idx + 1}笔，但与当前"
+                        f"{self._dir_fx_label(self.dir)}第{current_event.peak_bi_idx + 1}笔"
+                        f"跨度{span}笔，不满足至少3笔，继续按同向端点替代检查。"
+                    )
 
             between_reverse_events = [
                 reverse_event for reverse_event in reverse_events
