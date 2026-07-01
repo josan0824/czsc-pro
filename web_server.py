@@ -651,6 +651,69 @@ iframe {{
   background:transparent;
   color:inherit;
 }}
+.host-seg-note-popover {{
+  position:fixed;
+  z-index:45;
+  display:none;
+  width:min(675px, calc(100vw - 28px));
+  height:360px;
+  min-width:360px;
+  min-height:180px;
+  max-width:calc(100vw - 16px);
+  max-height:calc(100vh - 8px);
+  overflow:auto;
+  resize:both;
+  border:1px solid #d0d5dd;
+  border-radius:6px;
+  background:#fff;
+  box-shadow:0 16px 42px rgba(16,24,40,.22);
+  color:#101828;
+  font-size:13px;
+  line-height:1.55;
+}}
+.host-seg-note-popover.active {{ display:block; }}
+.host-seg-note-popover-head {{
+  position:sticky;
+  top:0;
+  z-index:1;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:7px 9px;
+  border-bottom:1px solid #e4e7ec;
+  background:#eef2f6;
+  cursor:move;
+  user-select:none;
+}}
+.host-seg-note-popover-title {{ font-weight:700; }}
+.host-seg-note-popover-close {{
+  width:24px;
+  min-width:24px;
+  height:24px;
+  padding:0;
+  border:0;
+  border-radius:3px;
+  background:transparent;
+  color:#344054;
+  cursor:pointer;
+  font-size:18px;
+  line-height:1;
+}}
+.host-seg-note-popover-close:hover {{ background:#d0d5dd; }}
+.host-seg-note-popover-body {{ padding:9px 12px 11px; }}
+.host-seg-note-popover-body ol {{ margin:0; padding-left:18px; }}
+.host-seg-note-popover-body button {{
+  height:auto;
+  padding:1px 3px;
+  border:1px solid #fed7aa;
+  border-radius:3px;
+  background:#fff7ed;
+  color:#c2410c;
+  font-size:inherit;
+  font-weight:700;
+  line-height:1.4;
+}}
 @media (max-width:800px) {{
   .topbar {{
     align-items:stretch;
@@ -728,6 +791,13 @@ iframe {{
     </div>
   </section>
 </div>
+<div id="host-seg-note-popover" class="host-seg-note-popover" role="dialog" aria-label="线段备注">
+  <div id="host-seg-note-popover-head" class="host-seg-note-popover-head">
+    <span id="host-seg-note-popover-title" class="host-seg-note-popover-title">线段备注</span>
+    <button id="host-seg-note-popover-close" class="host-seg-note-popover-close" type="button" aria-label="关闭">×</button>
+  </div>
+  <div id="host-seg-note-popover-body" class="host-seg-note-popover-body"></div>
+</div>
 <script>
 var quickItems = {quick_items};
 var form = document.getElementById('query-form');
@@ -744,6 +814,11 @@ var logicOpenBtn = document.getElementById('logic-open');
 var logicModal = document.getElementById('logic-modal');
 var logicCloseBtn = document.getElementById('logic-close');
 var logicBody = document.getElementById('logic-body');
+var hostSegNotePopover = document.getElementById('host-seg-note-popover');
+var hostSegNoteHead = document.getElementById('host-seg-note-popover-head');
+var hostSegNoteTitle = document.getElementById('host-seg-note-popover-title');
+var hostSegNoteBody = document.getElementById('host-seg-note-popover-body');
+var hostSegNoteClose = document.getElementById('host-seg-note-popover-close');
 var autoRefreshEnabled = false;
 var autoRefreshTimer = null;
 var chartLoading = false;
@@ -751,6 +826,11 @@ var chartUpdating = false;
 var lastChartSignature = null;
 var chartPatchAckTimer = null;
 var lastDataFetchText = '';
+var isDraggingHostSegNote = false;
+var hostSegNoteDragStartX = 0;
+var hostSegNoteDragStartY = 0;
+var hostSegNoteStartLeft = 0;
+var hostSegNoteStartTop = 0;
 
 function buildUrl(code, cacheBust) {{
   var params = new URLSearchParams();
@@ -1004,6 +1084,25 @@ function closeLogicModal() {{
   logicModal.setAttribute('aria-hidden', 'true');
   logicOpenBtn.focus();
 }}
+function clampHostSegNotePosition(leftPx, topPx) {{
+  var maxLeft = Math.max(8, window.innerWidth - hostSegNotePopover.offsetWidth - 8);
+  var maxTop = Math.max(0, window.innerHeight - hostSegNotePopover.offsetHeight - 8);
+  return {{
+    left: Math.max(8, Math.min(maxLeft, leftPx)),
+    top: Math.max(0, Math.min(maxTop, topPx))
+  }};
+}}
+function openHostSegNote(data) {{
+  hostSegNoteTitle.textContent = data.title || ('线段 #' + (data.rowId || '') + ' 备注');
+  hostSegNoteBody.innerHTML = data.html || '';
+  hostSegNotePopover.classList.add('active');
+  var pos = clampHostSegNotePosition(Number(data.left) || 16, Number(data.top) || 16);
+  hostSegNotePopover.style.left = pos.left + 'px';
+  hostSegNotePopover.style.top = pos.top + 'px';
+}}
+function closeHostSegNote() {{
+  hostSegNotePopover.classList.remove('active');
+}}
 quickItems.forEach(function(item) {{
   var btn = document.createElement('button');
   btn.type = 'button';
@@ -1034,7 +1133,12 @@ frame.addEventListener('load', function() {{
   statusEl.textContent = chartStatus('已加载');
 }});
 window.addEventListener('message', function(event) {{
+  if (event.origin !== window.location.origin) return;
   var data = event.data || {{}};
+  if (data.type === 'chan-open-seg-note') {{
+    openHostSegNote(data);
+    return;
+  }}
   if (data.type === 'chan-chart-updated') {{
     chartLoading = false;
     chartUpdating = false;
@@ -1051,11 +1155,45 @@ autoRefreshBtn.addEventListener('click', function() {{
 }});
 logicOpenBtn.addEventListener('click', openLogicModal);
 logicCloseBtn.addEventListener('click', closeLogicModal);
+hostSegNoteClose.addEventListener('click', function(e) {{
+  e.preventDefault();
+  e.stopPropagation();
+  closeHostSegNote();
+}});
+hostSegNotePopover.addEventListener('mousedown', function(e) {{
+  e.stopPropagation();
+}});
+hostSegNotePopover.addEventListener('wheel', function(e) {{
+  e.stopPropagation();
+}}, {{passive:true}});
+hostSegNoteHead.addEventListener('mousedown', function(e) {{
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  isDraggingHostSegNote = true;
+  hostSegNoteDragStartX = e.clientX;
+  hostSegNoteDragStartY = e.clientY;
+  hostSegNoteStartLeft = parseFloat(hostSegNotePopover.style.left || '0') || 0;
+  hostSegNoteStartTop = parseFloat(hostSegNotePopover.style.top || '0') || 0;
+}});
+window.addEventListener('mousemove', function(e) {{
+  if (!isDraggingHostSegNote) return;
+  var pos = clampHostSegNotePosition(
+    hostSegNoteStartLeft + e.clientX - hostSegNoteDragStartX,
+    hostSegNoteStartTop + e.clientY - hostSegNoteDragStartY
+  );
+  hostSegNotePopover.style.left = pos.left + 'px';
+  hostSegNotePopover.style.top = pos.top + 'px';
+}});
+window.addEventListener('mouseup', function() {{
+  isDraggingHostSegNote = false;
+}});
 logicModal.addEventListener('click', function(e) {{
   if (e.target === logicModal) closeLogicModal();
 }});
 window.addEventListener('keydown', function(e) {{
   if (e.key === 'Escape' && logicModal.classList.contains('active')) closeLogicModal();
+  if (e.key === 'Escape' && hostSegNotePopover.classList.contains('active')) closeHostSegNote();
 }});
 setActive('{DEFAULT_CODE}');
 </script>

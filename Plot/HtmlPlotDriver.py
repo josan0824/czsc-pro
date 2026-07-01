@@ -1279,10 +1279,6 @@ for bi in begin_next ... window_end:
                     f"{_fx_label(begin_kind)} {_fmt_num(seg.begin_y)} 推进到"
                     f"{_fx_label(end_kind)} {_fmt_num(seg.end_y)}。"
                 ),
-                (
-                    "线段构造过程：先生成有效笔序列，再在反向笔组成的特征序列上确认段结束；"
-                    "相邻线段首尾相接，线段端点取自笔端点，不直接连接原始K线。"
-                ),
             ]
             v2_mode = self._classify_segment_v2_mode(
                 label,
@@ -1396,30 +1392,6 @@ for bi in begin_next ... window_end:
 
         for seg_row in seg_rows:
             seg_row["notes"] = [hydrate_note_refs(note) for note in seg_row["notes"]]
-            component_pens = [
-                pen_by_source_idx[bi_idx]
-                for bi_idx in range(seg_row["begin_bi_idx"], seg_row["end_bi_idx"] + 1)
-                if bi_idx in pen_by_source_idx
-            ]
-            if component_pens:
-                pen_parts = []
-                for pen in component_pens:
-                    begin_row = row_by_klc_idx.get(pen["begin_klc_idx"])
-                    end_row = row_by_klc_idx.get(pen["end_klc_idx"])
-                    begin_ref = (
-                        self._fx_note_ref(begin_row, pen_row=pen)
-                        if begin_row else f'{_fx_label(pen["begin_kind"])} {html.escape(pen["begin_date"])} {_fmt_num(pen["begin_price"])}'
-                    )
-                    end_ref = (
-                        self._fx_note_ref(end_row, pen_row=pen)
-                        if end_row else f'{_fx_label(pen["end_kind"])} {html.escape(pen["end_date"])} {_fmt_num(pen["end_price"])}'
-                    )
-                    pen_parts.append(
-                        f'{self._pen_note_ref(pen)}：{_dir_label(pen["direction"])}，'
-                        f'{begin_ref} → {end_ref}，'
-                        f'跨度{pen["kl_cnt"]}根，状态{html.escape(pen["status"])}'
-                    )
-                seg_row["notes"].append({"html": "<br>".join(pen_parts)})
 
         def totally_check_result(start: Dict[str, Any], end: Dict[str, Any]) -> tuple[Optional[bool], str]:
             if start["kind"] == "top" and end["kind"] == "bottom":
@@ -2101,13 +2073,13 @@ for bi in begin_next ... window_end:
   <div id="wrap-{chart_id}" class="chart-wrap" tabindex="0" aria-label="{html.escape(label)} K线图">
     {"".join(svg)}
     <div id="tooltip-{chart_id}" class="tooltip"></div>
-    <div id="seg-note-popover-{chart_id}" class="seg-note-popover" role="dialog" aria-label="线段备注">
-      <div id="seg-note-popover-head-{chart_id}" class="seg-note-popover-head">
-        <span id="seg-note-popover-title-{chart_id}" class="seg-note-popover-title">线段备注</span>
-        <button id="seg-note-popover-close-{chart_id}" class="seg-note-popover-close" type="button" aria-label="关闭">×</button>
-      </div>
-      <div id="seg-note-popover-body-{chart_id}" class="seg-note-popover-body"></div>
+  </div>
+  <div id="seg-note-popover-{chart_id}" class="seg-note-popover" role="dialog" aria-label="线段备注">
+    <div id="seg-note-popover-head-{chart_id}" class="seg-note-popover-head">
+      <span id="seg-note-popover-title-{chart_id}" class="seg-note-popover-title">线段备注</span>
+      <button id="seg-note-popover-close-{chart_id}" class="seg-note-popover-close" type="button" aria-label="关闭">×</button>
     </div>
+    <div id="seg-note-popover-body-{chart_id}" class="seg-note-popover-body"></div>
   </div>
   <div class="legend">
     <span><i class="swatch" style="background:#d64b3c"></i>上涨K线</span>
@@ -2674,10 +2646,10 @@ function bindNoteRefs(scope) {{
 }}
 function clampSegNotePosition(leftPx, topPx) {{
   var maxLeft = Math.max(8, window.innerWidth - segNotePopover.offsetWidth - 8);
-  var maxTop = Math.max(8, window.innerHeight - segNotePopover.offsetHeight - 8);
+  var maxTop = Math.max(0, window.innerHeight - segNotePopover.offsetHeight - 8);
   return {{
     left: Math.max(8, Math.min(maxLeft, leftPx)),
-    top: Math.max(8, Math.min(maxTop, topPx))
+    top: Math.max(0, Math.min(maxTop, topPx))
   }};
 }}
 function placeSegNoteNearSegment(rowId) {{
@@ -2703,6 +2675,32 @@ function openSegNotePopover(rowId) {{
   segNotePopoverTitle.textContent = '线段 #' + rowId + ' 备注';
   segNotePopoverBody.innerHTML = noteCell.innerHTML;
   bindNoteRefs(segNotePopoverBody);
+  if (window.parent && window.parent !== window) {{
+    var hostLeft = 16;
+    var hostTop = 16;
+    var seg = data.segments.find(function(item) {{ return String(item.row) === String(rowId); }});
+    if (seg) {{
+      var r = rect();
+      var frameRect = null;
+      try {{
+        frameRect = window.frameElement ? window.frameElement.getBoundingClientRect() : null;
+      }} catch (err) {{}}
+      var midX = (seg.x1 + seg.x2) * 0.5;
+      var midY = (seg.y1 + seg.y2) * 0.5;
+      hostLeft = (frameRect ? frameRect.left : 0) + r.left + (midX - originX) / viewW * r.width + 14;
+      hostTop = (frameRect ? frameRect.top : 0) + r.top + (midY - originY) / viewH * r.height + 14;
+    }}
+    window.parent.postMessage({{
+      type: 'chan-open-seg-note',
+      rowId: rowId,
+      title: segNotePopoverTitle.textContent,
+      html: noteCell.innerHTML,
+      left: hostLeft,
+      top: hostTop
+    }}, window.location.origin);
+    closeSegNotePopover();
+    return;
+  }}
   segNotePopover.classList.add('active');
   placeSegNoteNearSegment(rowId);
 }}
@@ -2820,6 +2818,9 @@ segNotePopoverClose.addEventListener('click', function(e) {{
 segNotePopover.addEventListener('mousedown', function(e) {{
   e.stopPropagation();
 }});
+segNotePopover.addEventListener('wheel', function(e) {{
+  e.stopPropagation();
+}}, {{passive:true}});
 segNotePopoverHead.addEventListener('mousedown', function(e) {{
   if (e.button !== 0) return;
   e.preventDefault();
