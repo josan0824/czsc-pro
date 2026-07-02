@@ -1095,6 +1095,7 @@ function clampHostSegNotePosition(leftPx, topPx) {{
 function openHostSegNote(data) {{
   hostSegNoteTitle.textContent = data.title || ('线段 #' + (data.rowId || '') + ' 备注');
   hostSegNoteBody.innerHTML = data.html || '';
+  bindHostNoteRefs(hostSegNoteBody);
   hostSegNotePopover.classList.add('active');
   var pos = clampHostSegNotePosition(Number(data.left) || 16, Number(data.top) || 16);
   hostSegNotePopover.style.left = pos.left + 'px';
@@ -1102,6 +1103,33 @@ function openHostSegNote(data) {{
 }}
 function closeHostSegNote() {{
   hostSegNotePopover.classList.remove('active');
+}}
+function postChartHighlight(payload) {{
+  if (!frame.contentWindow) return;
+  frame.contentWindow.postMessage(Object.assign({{
+    type: 'chan-highlight-note-ref'
+  }}, payload || {{}}), window.location.origin);
+}}
+function bindHostNoteRefs(scope) {{
+  scope.querySelectorAll('.fx-note-ref[data-fx-ref]').forEach(function(btn) {{
+    btn.addEventListener('click', function(e) {{
+      e.preventDefault();
+      e.stopPropagation();
+      postChartHighlight({{
+        fxRef: btn.getAttribute('data-fx-ref'),
+        penRef: btn.getAttribute('data-pen-ref') || ''
+      }});
+    }});
+  }});
+  scope.querySelectorAll('.pen-note-ref[data-pen-ref]').forEach(function(btn) {{
+    btn.addEventListener('click', function(e) {{
+      e.preventDefault();
+      e.stopPropagation();
+      postChartHighlight({{
+        penRef: btn.getAttribute('data-pen-ref')
+      }});
+    }});
+  }});
 }}
 quickItems.forEach(function(item) {{
   var btn = document.createElement('button');

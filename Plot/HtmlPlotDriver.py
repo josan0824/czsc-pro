@@ -2713,6 +2713,11 @@ function handleFractalPick(rowId) {{
   markFractalRange(rowId);
   highlightFractalOnChart(rowId);
 }}
+function handleNoteRefHighlight(data) {{
+  data = data || {{}};
+  if (data.penRef) highlightPenOnChart(data.penRef);
+  if (data.fxRef) highlightFractalOnChart(data.fxRef);
+}}
 
 wrap.addEventListener('wheel', function(e) {{
   e.preventDefault();
@@ -2918,6 +2923,13 @@ window.addEventListener('resize', function() {{
     );
     segNotePopover.style.left = pos.left + 'px';
     segNotePopover.style.top = pos.top + 'px';
+  }}
+}}, {{signal:eventSignal}});
+window.addEventListener('message', function(event) {{
+  if (event.origin !== window.location.origin) return;
+  var msg = event.data || {{}};
+  if (msg.type === 'chan-highlight-note-ref') {{
+    handleNoteRefHighlight(msg);
   }}
 }}, {{signal:eventSignal}});
 resetView();
