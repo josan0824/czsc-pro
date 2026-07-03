@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from Bi.Bi import CBi
+from Combiner.Combine_Item import CCombine_Item
 from Common.CEnum import BI_DIR, KLINE_DIR, KL_TYPE, SEG_TYPE
 from Common.func_util import revert_bi_dir
 
@@ -94,6 +95,19 @@ class CEigenFXV2(CEigenFX):
            (self.is_down() and self.ele[1].low > self.ele[0].low):
             return self.reset()
         return False
+
+    def treat_third_ele(self, bi: CBi) -> bool:
+        if not self.allow_first_second_include:
+            assert self.ele[1] is not None
+            allow_top_equal = (1 if bi.is_down() else -1) if self.exclude_included else None
+            combine_dir = self.ele[1].test_combine(
+                CCombine_Item(bi),
+                exclude_included=self.exclude_included,
+                allow_top_equal=allow_top_equal,
+            )
+            if combine_dir in (KLINE_DIR.COMBINE, KLINE_DIR.INCLUDED):
+                return self.reset()
+        return super(CEigenFXV2, self).treat_third_ele(bi)
 
     def reset(self):
         bi_tmp_list = list(self.lst[1:])
