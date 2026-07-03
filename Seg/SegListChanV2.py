@@ -71,13 +71,23 @@ class CEigenFXV2(CEigenFX):
     都会进入后续相反特征分型确认和同类更极端候选替代流程。
     """
 
-    def __init__(self, _dir: BI_DIR, exclude_included=True, lv=SEG_TYPE.BI):
+    def __init__(self, _dir: BI_DIR, exclude_included=True, lv=SEG_TYPE.BI, allow_first_second_include: bool = False):
         super(CEigenFXV2, self).__init__(_dir, exclude_included=exclude_included, lv=lv)
+        self.allow_first_second_include = allow_first_second_include
         self.final_end_bi_idx: Optional[int] = None
         self.v2_notes: List[str] = []
         self.v2_final_all_sure: Optional[bool] = None
 
     def treat_second_ele(self, bi: CBi) -> bool:
+        if self.allow_first_second_include:
+            assert self.ele[0] is not None
+            combine_dir = self.ele[0].try_add(bi, exclude_included=False)
+            if combine_dir != KLINE_DIR.COMBINE:
+                self.ele[1] = CEigen(bi, self.kl_dir)
+                if (self.is_up() and self.ele[1].high < self.ele[0].high) or \
+                   (self.is_down() and self.ele[1].low > self.ele[0].low):
+                    return self.reset()
+            return False
         assert self.ele[0] is not None
         self.ele[1] = CEigen(bi, self.kl_dir)
         if (self.is_up() and self.ele[1].high < self.ele[0].high) or \
@@ -148,11 +158,17 @@ class CEigenFXV2(CEigenFX):
             all_sure=eigen_fx.all_bi_is_sure(),
         )
 
-    def _collect_fx_events(self, bi_list, seg_dir: BI_DIR, begin_idx: int) -> List[_V2FxEvent]:
+    def _collect_fx_events(
+        self,
+        bi_list,
+        seg_dir: BI_DIR,
+        begin_idx: int,
+        allow_first_second_include: bool = False,
+    ) -> List[_V2FxEvent]:
         events: List[_V2FxEvent] = []
         if begin_idx >= len(bi_list):
             return events
-        eigen_fx = CEigenFXV2(seg_dir, lv=self.lv)
+        eigen_fx = CEigenFXV2(seg_dir, lv=self.lv, allow_first_second_include=allow_first_second_include)
         for bi in bi_list[begin_idx:]:
             if bi.dir == seg_dir:
                 continue
@@ -247,7 +263,12 @@ class CEigenFXV2(CEigenFX):
             event for event in self._collect_same_endpoint_events(bi_list, initial_event.peak_bi_idx + 1)
             if event.evidence_bi_idx > initial_event.evidence_bi_idx and self._is_more_extreme_event(event, initial_event)
         ]
-        reverse_events = self._collect_fx_events(bi_list, reverse_dir, begin_idx)
+        reverse_events = self._collect_fx_events(
+            bi_list,
+            reverse_dir,
+            begin_idx,
+            allow_first_second_include=self.ele[1].gap,
+        )
         events = sorted(
             [(event.evidence_bi_idx, "same", event) for event in same_events] +
             [(event.evidence_bi_idx, "same_endpoint", event) for event in same_endpoint_events] +
