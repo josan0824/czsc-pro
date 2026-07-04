@@ -99,19 +99,6 @@ class CEigenFXV2(CEigenFX):
             return self.reset()
         return False
 
-    def treat_third_ele(self, bi: CBi) -> bool:
-        if not self.allow_first_second_include:
-            assert self.ele[1] is not None
-            allow_top_equal = (1 if bi.is_down() else -1) if self.exclude_included else None
-            combine_dir = self.ele[1].test_combine(
-                CCombine_Item(bi),
-                exclude_included=self.exclude_included,
-                allow_top_equal=allow_top_equal,
-            )
-            if combine_dir in (KLINE_DIR.COMBINE, KLINE_DIR.INCLUDED):
-                return self.reset()
-        return super(CEigenFXV2, self).treat_third_ele(bi)
-
     def reset(self):
         bi_tmp_list = list(self.lst[1:])
         self.clear()
