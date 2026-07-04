@@ -91,8 +91,6 @@ class CEigenFXV2(CEigenFX):
             return False
         assert self.ele[0] is not None
         combine_dir = self.ele[0].test_combine(CCombine_Item(bi), exclude_included=self.exclude_included)
-        if combine_dir == KLINE_DIR.INCLUDED:
-            return self.reset()
         self.ele[1] = CEigen(bi, self.kl_dir)
         if (self.is_up() and self.ele[1].high < self.ele[0].high) or \
            (self.is_down() and self.ele[1].low > self.ele[0].low):
@@ -228,9 +226,9 @@ class CEigenFXV2(CEigenFX):
             and self._is_more_extreme_event(initial_event, first_event)
         ):
             self.v2_notes.append(
-                f"初始特征分型已包含同类更极端替代：第{first_event.peak_bi_idx + 1}笔"
-                f"替换为第{initial_event.peak_bi_idx + 1}笔，线段候选端点取最新"
-                f"{self._dir_fx_label(self.dir)}。"
+                f"初始三元素内部对比：第一特征元素峰值在第{first_event.peak_bi_idx + 1}笔，"
+                f"第二特征元素峰值第{initial_event.peak_bi_idx + 1}笔更极端，"
+                f"所以初始候选端点直接取第{initial_event.peak_bi_idx + 1}笔。"
             )
         return self.find_revert_fx(bi_lst, self.final_end_bi_idx + 2, 0, 0)
 

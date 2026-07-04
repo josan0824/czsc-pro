@@ -205,7 +205,7 @@ def _segment_v2_md_html() -> str:
         '<li>标准情况一：第一元素和第二元素之间无缺口；分型成立后仍继续寻找相反特征分型确认。</li>'
         '<li>标准情况二：第一元素和第二元素之间有缺口；同样继续寻找相反特征分型确认。</li>'
         '<li>第一、第二特征元素保持 v2.0 限制，不做向左包含；第二、第三特征元素及第二元素右侧后续元素允许双向包含处理。</li>'
-        '<li>初始三元素特征分型成立时，如果第二特征元素已经比第一特征元素更高或更低，候选端点直接取第二元素，并在备注中说明这次同类替代。</li>'
+        '<li>初始三元素特征分型成立时，如果第二特征元素已经比第一特征元素更高或更低，候选端点直接取第二元素；备注会说明这是初始三元素内部对比，不属于后续扫描替代。</li>'
         '<li>寻找相反特征分型过程中，如果出现更高顶分型、更低底分型，或同向更极端笔端点，候选端点会替代前一个同类候选端点；但同向更极端笔端点正好确认相反特征分型时，相反特征分型优先确认线段，不替代候选端点。</li>'
         '<li>两个同类候选之间若出现相反特征分型，会取其中最极端者；它与最新同类候选至少相隔3笔时，才替代之前的相反分型候选。</li>'
         '<li>如果这个中间相反极值与最新同类候选不足3笔，则不替代之前的相反分型候选，仅保留同类端点更新结果。</li>'
@@ -1754,6 +1754,8 @@ for bi in begin_next ... window_end:
                 "y2": round(yp(bi.end_y), 1),
                 "sure": bool(bi.is_sure),
                 "direction": "up" if bi.end_y >= bi.begin_y else "down",
+                "beginKind": "bottom" if bi.end_y >= bi.begin_y else "top",
+                "endKind": "top" if bi.end_y >= bi.begin_y else "bottom",
                 "row": i + 1,
             })
 
@@ -2153,7 +2155,7 @@ var isPanning = false, panStartX = 0, panStartY = 0, panOriginX = 0, panOriginY 
 var isDraggingSegNote = false, segNoteDragStartX = 0, segNoteDragStartY = 0, segNoteStartLeft = 0, segNoteStartTop = 0;
 var panFrame = null, pendingPanOriginX = originX, pendingPanOriginY = originY;
 var zoomFrame = null, zoomEndTimer = null, pendingZoomFactor = 1, pendingZoomRx = 0.5, pendingZoomRy = 0.5;
-var hoverFrame = null, pendingHoverEvent = null, lastTipIdx = -1;
+var hoverFrame = null, pendingHoverEvent = null, lastTipKey = '';
 window.__chanChartViews = window.__chanChartViews || {{}};
 
 function rect() {{
@@ -2396,17 +2398,40 @@ function scheduleWheelZoom(factor, rx, ry) {{
     updateViewBox();
   }}, 90);
 }}
-function showTip(idx, clientX, clientY) {{
+function penLabel(pen, p) {{
+  if (!pen) return '';
+  var nearBegin = false, nearEnd = false;
+  if (p) {{
+    var r = rect();
+    var hitX = 14 * viewW / Math.max(1, r.width);
+    var hitY = 14 * viewH / Math.max(1, r.height);
+    nearBegin = Math.abs(p.x - pen.x1) <= hitX && Math.abs(p.y - pen.y1) <= hitY;
+    nearEnd = Math.abs(p.x - pen.x2) <= hitX && Math.abs(p.y - pen.y2) <= hitY;
+  }}
+  if (nearBegin) return (pen.beginKind === 'bottom' ? '底' : '顶') + '第' + pen.row + '笔';
+  if (nearEnd) return (pen.endKind === 'bottom' ? '底' : '顶') + '第' + pen.row + '笔';
+  return '第' + pen.row + '笔（' + (pen.direction === 'up' ? '向上' : '向下') + '）';
+}}
+function hoveredPen(e, p) {{
+  var target = e && e.target && e.target.closest ? e.target.closest('.chart-pen-line[data-pen-row],.chart-pen-hit[data-pen-row]') : null;
+  if (!target) return null;
+  var rowId = target.getAttribute('data-pen-row');
+  return data.pens.find(function(item) {{ return String(item.row) === String(rowId); }}) || null;
+}}
+function showTip(idx, clientX, clientY, pen, p) {{
   if (idx < 0 || idx >= data.bars.length) {{ tip.style.display = 'none'; return; }}
   var b = data.bars[idx];
-  if (idx !== lastTipIdx) {{
+  var penText = penLabel(pen, p);
+  var tipKey = idx + ':' + penText;
+  if (tipKey !== lastTipKey) {{
     selected.setAttribute('x1', b.x.toFixed(1));
     selected.setAttribute('x2', b.x.toFixed(1));
     selected.style.display = 'block';
-    tip.innerHTML = '<div><b>' + b.dt + '</b></div>' +
+    tip.innerHTML = (penText ? '<div><b>' + penText + '</b></div>' : '') +
+      '<div><b>' + b.dt + '</b></div>' +
       '<div>开盘: ' + b.o.toFixed(2) + ' | 最高: ' + b.h.toFixed(2) + '</div>' +
       '<div>收盘: ' + b.c.toFixed(2) + ' | 最低: ' + b.l.toFixed(2) + '</div>';
-    lastTipIdx = idx;
+    lastTipKey = tipKey;
   }}
   tip.style.display = 'block';
   var wr = wrap.getBoundingClientRect();
@@ -2418,9 +2443,9 @@ function showTip(idx, clientX, clientY) {{
   if (y + 78 > wr.height) y = wr.height - 82;
   tip.style.left = x + 'px';
   tip.style.top = y + 'px';
-}}
+	}}
 function hideTip() {{
-  lastTipIdx = -1;
+  lastTipKey = '';
   tip.style.display = 'none';
 }}
 function handleHover(e) {{
@@ -2428,7 +2453,8 @@ function handleHover(e) {{
   var p = svgPoint(e);
   if (crosshairEnabled) {{ crosshairPoint = p; updateCrosshair(); }}
   var idx = nearestBar(e.clientX);
-  if (idx >= 0 && p.y >= top && p.y <= chartH - bottom) showTip(idx, e.clientX, e.clientY);
+  var pen = hoveredPen(e, p);
+  if (idx >= 0 && p.y >= top && p.y <= chartH - bottom) showTip(idx, e.clientX, e.clientY, pen, p);
   else hideTip();
 }}
 function scheduleHover(e) {{
