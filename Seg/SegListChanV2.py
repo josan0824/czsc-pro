@@ -90,6 +90,9 @@ class CEigenFXV2(CEigenFX):
                     return self.reset()
             return False
         assert self.ele[0] is not None
+        combine_dir = self.ele[0].test_combine(CCombine_Item(bi), exclude_included=self.exclude_included)
+        if combine_dir == KLINE_DIR.INCLUDED:
+            return self.reset()
         self.ele[1] = CEigen(bi, self.kl_dir)
         if (self.is_up() and self.ele[1].high < self.ele[0].high) or \
            (self.is_down() and self.ele[1].low > self.ele[0].low):
