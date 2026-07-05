@@ -21,6 +21,7 @@ class Cklc_meta:
         self.end_idx = klc.lst[-1].idx
         self.time_begin = klc.time_begin
         self.time_end = klc.time_end
+        self.dir = klc.dir
         self.type = klc.fx if klc.fx != FX_TYPE.UNKNOWN else klc.dir
 
         self.klu_list = list(klc.lst)

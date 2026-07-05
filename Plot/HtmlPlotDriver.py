@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from Chan import CChan
-from Common.CEnum import BI_DIR, FX_TYPE, KL_TYPE
+from Common.CEnum import BI_DIR, FX_TYPE, KLINE_DIR, KL_TYPE
 from Plot.PlotMeta import CChanPlotMeta
 from Seg.SegListChanV2 import classify_segment_v2_mode
 
@@ -734,7 +734,7 @@ window.addEventListener('message', function(event) {{
       </div>
     </div>
     <div class="logic-example">
-      <strong>例子：</strong>若当前方向向上，前一根范围是 10.00-12.00，后一根范围是 11.00-11.80，后一根被包含。合并后不是简单保留 10.00-12.00，而是保留 11.00-12.00，因为上升包含处理会把低点抬高。这样做的目的，是减少包含关系造成的分型假信号。
+      <strong>例子：</strong>若当前方向向上，前一根范围是 10.00-12.00，后一根范围是 11.00-11.80，后一根被包含。合并后不是简单保留 10.00-12.00，而是保留 11.00-12.00，因为上升包含处理会把低点抬高。这样做的目的，是减少包含关系造成的分型假信号。图上的包含虚线框只表达合并方向：红色表示向上包含，高点和低点都取较高值，即“高高”；绿色表示向下包含，高点和低点都取较低值，即“低低”。
     </div>
   </section>
   <section class="logic-tab-panel" data-logic-panel="fractal">
@@ -1923,7 +1923,7 @@ for bi in begin_next ... window_end:
         for klc in meta.klc_list:
             if klc.end_idx <= klc.begin_idx:
                 continue
-            stroke = "#d64b3c" if klc.type == FX_TYPE.TOP else "#4c6fff" if klc.type == FX_TYPE.BOTTOM else "#58a766"
+            stroke = "#d64b3c" if klc.dir == KLINE_DIR.UP else "#58a766"
             x = left + klc.begin_idx * bar_w - 1
             w = (klc.end_idx - klc.begin_idx + 1) * bar_w + 1
             y = yp(klc.high) - 1
@@ -2085,9 +2085,11 @@ for bi in begin_next ... window_end:
     <div id="seg-note-popover-body-{chart_id}" class="seg-note-popover-body"></div>
   </div>
   <div class="legend">
-    <span><i class="swatch" style="background:#d64b3c"></i>上涨K线</span>
-    <span><i class="swatch" style="background:#58a766"></i>下跌K线</span>
-    <span><i class="swatch" style="background:#4c6fff"></i>顶分型</span>
+	    <span><i class="swatch" style="background:#d64b3c"></i>上涨K线</span>
+	    <span><i class="swatch" style="background:#58a766"></i>下跌K线</span>
+	    <span><i class="swatch" style="background:#d64b3c"></i>包含高高</span>
+	    <span><i class="swatch" style="background:#58a766"></i>包含低低</span>
+	    <span><i class="swatch" style="background:#4c6fff"></i>顶分型</span>
     <span><i class="swatch" style="background:#f59e0b"></i>底分型/中枢</span>
     <span><i class="swatch" style="background:#cbd5e1"></i>笔</span>
     <span><i class="swatch" style="background:#69a35f"></i>段</span>
