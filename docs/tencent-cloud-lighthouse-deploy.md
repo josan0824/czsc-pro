@@ -1828,3 +1828,47 @@ git pull
 sudo systemctl restart czsc-chart
 sudo systemctl status czsc-chart
 ```
+
+---
+
+## 22. 查看服务日志
+
+查看 `czsc-chart` 服务最近 100 行日志：
+
+```bash
+journalctl -u czsc-chart -n 100 --no-pager
+```
+
+实时跟踪 `czsc-chart` 服务日志：
+
+```bash
+journalctl -u czsc-chart -f
+```
+
+查看 `czsc-chart` 服务状态和最近日志摘要：
+
+```bash
+sudo systemctl status czsc-chart
+```
+
+查看 Nginx 最近错误日志：
+
+```bash
+sudo tail -n 100 /var/log/nginx/error.log
+```
+
+实时跟踪 Nginx 访问日志：
+
+```bash
+sudo tail -f /var/log/nginx/access.log
+```
+
+如果服务访问异常，建议按以下顺序排查：
+
+```bash
+sudo systemctl status czsc-chart
+journalctl -u czsc-chart -n 100 --no-pager
+sudo systemctl status nginx
+sudo nginx -t
+sudo tail -n 100 /var/log/nginx/error.log
+```

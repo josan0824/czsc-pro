@@ -1,6 +1,8 @@
 import json
+import logging
 import math
 import os
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -11,6 +13,9 @@ from Common.func_util import str2float
 from KLine.KLine_Unit import CKLine_Unit
 
 from .CommonStockAPI import CCommonStockApi
+
+
+logger = logging.getLogger(__name__)
 
 
 def parse_tdx_symbol(symbol):
@@ -61,11 +66,6 @@ class CMootdx(CCommonStockApi):
     default_server = ("110.41.147.114", 7709)
     servers = [
         ("110.41.147.114", 7709),
-        ("8.129.13.54", 7709),
-        ("120.24.149.49", 7709),
-        ("124.70.176.52", 7709),
-        ("47.100.236.28", 7709),
-        ("101.133.214.242", 7709),
         ("119.97.185.59", 7709),
     ]
 
@@ -79,6 +79,14 @@ class CMootdx(CCommonStockApi):
     def get_kl_data(self):
         df = self.__fetch_bars()
         df = self.__normalize_df(df)
+        logger.info(
+            "[mootdx] normalized rows=%s code=%s k_type=%s begin=%s end=%s",
+            len(df),
+            self.code,
+            self.k_type.name,
+            self.begin_date,
+            self.end_date,
+        )
         for _, row in df.iterrows():
             yield CKLine_Unit(create_item_dict(row))
 
@@ -106,14 +114,50 @@ class CMootdx(CCommonStockApi):
 
     def __fetch_bars(self):
         last_error = None
+        logger.info(
+            "[mootdx] fetch start code=%s symbol=%s market=%s k_type=%s begin=%s end=%s servers=%s",
+            self.code,
+            self.symbol,
+            self.market,
+            self.k_type.name,
+            self.begin_date,
+            self.end_date,
+            ",".join(f"{host}:{port}" for host, port in self.servers),
+        )
         for server in self.servers:
             try:
+                started_at = time.monotonic()
                 self.__class__.__connect(server)
                 df = self.__fetch_bars_from_current_server()
                 if df is not None and not df.empty:
+                    logger.info(
+                        "[mootdx] fetch success server=%s:%s code=%s k_type=%s raw_rows=%s elapsed=%.3fs",
+                        server[0],
+                        server[1],
+                        self.code,
+                        self.k_type.name,
+                        len(df),
+                        time.monotonic() - started_at,
+                    )
                     return df
+                logger.warning(
+                    "[mootdx] fetch empty server=%s:%s code=%s k_type=%s elapsed=%.3fs",
+                    server[0],
+                    server[1],
+                    self.code,
+                    self.k_type.name,
+                    time.monotonic() - started_at,
+                )
             except Exception as err:
                 last_error = err
+                logger.exception(
+                    "[mootdx] fetch failed server=%s:%s code=%s k_type=%s error=%s",
+                    server[0],
+                    server[1],
+                    self.code,
+                    self.k_type.name,
+                    err,
+                )
 
         if self.is_index and self.k_type == KL_TYPE.K_1M:
             detail = f"最后错误：{last_error}" if last_error else "所有服务器均返回空数据。"
@@ -128,34 +172,105 @@ class CMootdx(CCommonStockApi):
     def __fetch_bars_from_current_server(self):
         frequency = self.__convert_type()
         chunks = []
-        for page in range(self.__max_pages()):
+        max_pages = self.__max_pages()
+        logger.info(
+            "[mootdx] request plan server=%s:%s code=%s symbol=%s market=%s k_type=%s frequency=%s max_pages=%s",
+            self.current_server[0] if self.current_server else "-",
+            self.current_server[1] if self.current_server else "-",
+            self.code,
+            self.symbol,
+            self.market,
+            self.k_type.name,
+            frequency,
+            max_pages,
+        )
+        for page in range(max_pages):
             start = page * 800
             try:
+                logger.info(
+                    "[mootdx] request page server=%s:%s code=%s symbol=%s k_type=%s frequency=%s start=%s offset=800",
+                    self.current_server[0] if self.current_server else "-",
+                    self.current_server[1] if self.current_server else "-",
+                    self.code,
+                    self.symbol,
+                    self.k_type.name,
+                    frequency,
+                    start,
+                )
+                request_started_at = time.monotonic()
                 df = self.__request_bars(frequency=frequency, start=start)
-            except Exception:
+                logger.info(
+                    "[mootdx] response page server=%s:%s code=%s k_type=%s frequency=%s start=%s rows=%s elapsed=%.3fs",
+                    self.current_server[0] if self.current_server else "-",
+                    self.current_server[1] if self.current_server else "-",
+                    self.code,
+                    self.k_type.name,
+                    frequency,
+                    start,
+                    0 if df is None else len(df),
+                    time.monotonic() - request_started_at,
+                )
+            except Exception as err:
+                logger.exception(
+                    "[mootdx] request page failed server=%s:%s code=%s k_type=%s frequency=%s start=%s error=%s",
+                    self.current_server[0] if self.current_server else "-",
+                    self.current_server[1] if self.current_server else "-",
+                    self.code,
+                    self.k_type.name,
+                    frequency,
+                    start,
+                    err,
+                )
                 if chunks:
                     break
                 if self.k_type == KL_TYPE.K_1M and frequency == 8:
+                    logger.info(
+                        "[mootdx] retry 1m fallback frequency=7 server=%s:%s code=%s start=%s",
+                        self.current_server[0] if self.current_server else "-",
+                        self.current_server[1] if self.current_server else "-",
+                        self.code,
+                        start,
+                    )
                     df = self.__request_bars(frequency=7, start=start)
                 else:
                     raise
             if (df is None or df.empty) and chunks:
+                logger.info("[mootdx] stop paging after empty page code=%s page=%s", self.code, page)
                 break
             if (df is None or df.empty) and self.k_type == KL_TYPE.K_1M and frequency == 8:
+                logger.info(
+                    "[mootdx] empty 1m page, retry fallback frequency=7 server=%s:%s code=%s start=%s",
+                    self.current_server[0] if self.current_server else "-",
+                    self.current_server[1] if self.current_server else "-",
+                    self.code,
+                    start,
+                )
                 df = self.__request_bars(frequency=7, start=start)
             if df is None or df.empty:
+                logger.info("[mootdx] stop paging no rows code=%s page=%s", self.code, page)
                 break
             chunks.append(df)
             if len(df) < 800:
+                logger.info("[mootdx] stop paging short page code=%s page=%s rows=%s", self.code, page, len(df))
                 break
             if self.begin_date:
                 normalized = self.__normalize_df(pd.concat(chunks, ignore_index=False))
                 if not normalized.empty and normalized["datetime"].min() <= pd.to_datetime(self.begin_date):
+                    logger.info(
+                        "[mootdx] stop paging begin reached code=%s page=%s min_datetime=%s begin=%s",
+                        self.code,
+                        page,
+                        normalized["datetime"].min(),
+                        self.begin_date,
+                    )
                     break
 
         if not chunks:
+            logger.warning("[mootdx] no chunks returned code=%s k_type=%s", self.code, self.k_type.name)
             return pd.DataFrame()
-        return pd.concat(chunks, ignore_index=False)
+        result = pd.concat(chunks, ignore_index=False)
+        logger.info("[mootdx] raw concat rows=%s code=%s k_type=%s", len(result), self.code, self.k_type.name)
+        return result
 
     def __max_pages(self):
         if not self.begin_date:
@@ -177,6 +292,15 @@ class CMootdx(CCommonStockApi):
         return max(1, min(10, math.ceil(days * per_day / 800) + 1))
 
     def __request_bars(self, frequency, start):
+        logger.debug(
+            "[mootdx] client call type=%s symbol=%s frequency=%s start=%s offset=800 server=%s:%s",
+            "index" if self.is_index else "bars",
+            self.symbol,
+            frequency,
+            start,
+            self.current_server[0] if self.current_server else "-",
+            self.current_server[1] if self.current_server else "-",
+        )
         if self.is_index:
             return self.client.index(symbol=self.symbol, frequency=frequency, start=start, offset=800)
         return self.client.bars(symbol=self.symbol, frequency=frequency, start=start, offset=800)
@@ -257,14 +381,22 @@ class CMootdx(CCommonStockApi):
     @classmethod
     def __connect(cls, server):
         if cls.client is not None and cls.current_server == server:
+            logger.info("[mootdx] reuse server=%s:%s", server[0], server[1])
             return
         if cls.client is not None and hasattr(cls.client, "close"):
+            logger.info(
+                "[mootdx] close previous server=%s:%s",
+                cls.current_server[0] if cls.current_server else "-",
+                cls.current_server[1] if cls.current_server else "-",
+            )
             cls.client.close()
         cls.__ensure_mootdx_config()
         try:
             from mootdx.quotes import Quotes
         except ImportError as err:
             raise ImportError("缺少 mootdx 依赖，请先执行：/opt/homebrew/bin/python3.11 -m pip install -U mootdx") from err
+        logger.info("[mootdx] connect server=%s:%s timeout=3", server[0], server[1])
+        started_at = time.monotonic()
         cls.client = Quotes.factory(
             market="std",
             server=server,
@@ -274,3 +406,4 @@ class CMootdx(CCommonStockApi):
             timeout=3,
         )
         cls.current_server = server
+        logger.info("[mootdx] connected server=%s:%s elapsed=%.3fs", server[0], server[1], time.monotonic() - started_at)

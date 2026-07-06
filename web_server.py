@@ -2,12 +2,17 @@ import argparse
 import hashlib
 import html
 import json
+import logging
+import multiprocessing
+import queue
 import re
 import requests
+import subprocess
 import traceback
 from datetime import datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from Chan import CChan
@@ -16,7 +21,16 @@ from Common.CEnum import AUTYPE, DATA_SRC, KL_TYPE
 from Plot.HtmlPlotDriver import CHtmlPlotDriver
 
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] %(levelname)s %(name)s %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+
 DEFAULT_CODE = "SH000001"
+DEFAULT_DAYS = 30
+DEFAULT_CHART_TIMEOUT_SECONDS = 20
+DEFAULT_LV = "1m"
 DEFAULT_SOURCE = "mootdx"
 DEFAULT_SEG_ALGO = "chan_v2"
 CODE_NAME_MAP = {
@@ -259,8 +273,8 @@ def build_chart_html(code: str, lv_key: str, days: int, source: str = DEFAULT_SO
     lv = parse_lv(lv_key)
     data_src = parse_source(source)
     seg_algo = parse_seg_algo(seg_algo)
-    days = max(5, min(days, 3650))
-    begin_time = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    days = 0 if days <= 0 else max(5, min(days, 3650))
+    begin_time = None if days <= 0 else (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
     if data_src == DATA_SRC.MOOTDX:
         from DataAPI.MootdxAPI import CMootdx
 
@@ -293,10 +307,112 @@ def attach_chart_signature(html_text: str, signature: str) -> str:
     return html_text
 
 
+def build_update_log(limit: int = 20) -> list[dict[str, str]]:
+    limit = max(1, min(int(limit), 50))
+    repo_dir = Path(__file__).resolve().parent
+    manual_items: list[dict[str, str]] = []
+    manual_path = repo_dir / "docs" / "update_log.json"
+    if manual_path.exists():
+        try:
+            manual_data = json.loads(manual_path.read_text(encoding="utf-8"))
+            if isinstance(manual_data, list):
+                for item in manual_data:
+                    if not isinstance(item, dict):
+                        continue
+                    content = str(item.get("content", "")).strip()
+                    if not content:
+                        continue
+                    manual_items.append({
+                        "hash": "manual",
+                        "time": str(item.get("time", "")).strip(),
+                        "title": content,
+                        "body": str(item.get("body", "")).strip(),
+                        "source": "manual",
+                    })
+        except Exception:
+            manual_items = []
+
+    cmd = [
+        "git",
+        "log",
+        f"--max-count={limit}",
+        "--date=format:%Y-%m-%d %H:%M:%S",
+        "--pretty=format:%H%x1f%ad%x1f%s%x1f%b%x1e",
+    ]
+    try:
+        output = subprocess.check_output(
+            cmd,
+            cwd=repo_dir,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except Exception:
+        return manual_items[:limit]
+    items: list[dict[str, str]] = []
+    for raw_record in output.strip("\x1e\n").split("\x1e"):
+        record = raw_record.strip("\n")
+        if not record:
+            continue
+        parts = record.split("\x1f", 3)
+        if len(parts) < 3:
+            continue
+        full_hash = parts[0].strip()
+        body = parts[3].strip() if len(parts) > 3 else ""
+        items.append({
+            "hash": full_hash[:8],
+            "time": parts[1].strip(),
+            "title": parts[2].strip(),
+            "body": body,
+            "source": "git",
+        })
+    return (manual_items + items)[:limit]
+
+
 def build_chart_payload(code: str, lv_key: str, days: int, source: str = DEFAULT_SOURCE, seg_algo: str = DEFAULT_SEG_ALGO) -> tuple[str, str]:
     html_text = build_chart_html(code, lv_key, days, source, seg_algo)
     signature = sign_chart_html(html_text)
     return attach_chart_signature(html_text, signature), signature
+
+
+def _chart_payload_worker(result_queue, code: str, lv_key: str, days: int, source: str, seg_algo: str):
+    try:
+        result_queue.put(("ok", build_chart_payload(code, lv_key, days, source, seg_algo)))
+    except Exception as err:
+        result_queue.put(("error", str(err), traceback.format_exc()))
+
+
+def build_chart_payload_with_timeout(
+    code: str,
+    lv_key: str,
+    days: int,
+    source: str = DEFAULT_SOURCE,
+    seg_algo: str = DEFAULT_SEG_ALGO,
+    timeout_seconds: int = DEFAULT_CHART_TIMEOUT_SECONDS,
+) -> tuple[str, str]:
+    ctx = multiprocessing.get_context("spawn")
+    result_queue = ctx.Queue(maxsize=1)
+    process = ctx.Process(
+        target=_chart_payload_worker,
+        args=(result_queue, code, lv_key, days, source, seg_algo),
+    )
+    process.start()
+    try:
+        status, *payload = result_queue.get(timeout=timeout_seconds)
+    except queue.Empty:
+        process.terminate()
+        process.join(2)
+        raise TimeoutError(
+            f"图表生成超过 {timeout_seconds} 秒，已中止。本次请求可能卡在行情数据源 {source}，"
+            "请稍后重试，或切换数据源/缩短周期。"
+        )
+    process.join(2)
+    if status == "ok":
+        return payload[0]
+    if len(payload) >= 2:
+        raise RuntimeError(f"{payload[0]}\n\n{payload[1]}")
+    raise RuntimeError(payload[0] if payload else "图表生成失败")
 
 
 def error_html(message: str, detail: str = "") -> str:
@@ -333,7 +449,13 @@ pre {{ white-space:pre-wrap; word-break:break-word; background:#f8fafc; border:1
 
 def index_html(host: str, port: int) -> str:
     quick_items = json.dumps(QUICK_ITEMS, ensure_ascii=False)
-    default_query = urlencode({"code": DEFAULT_CODE, "lv": "1m", "days": "250", "source": DEFAULT_SOURCE, "seg_algo": DEFAULT_SEG_ALGO})
+    default_query = urlencode({
+        "code": DEFAULT_CODE,
+        "lv": DEFAULT_LV,
+        "days": str(DEFAULT_DAYS),
+        "source": DEFAULT_SOURCE,
+        "seg_algo": DEFAULT_SEG_ALGO,
+    })
     chart_url = f"chart?{default_query}"
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -746,12 +868,13 @@ iframe {{
           <option value="day">日线</option>
         </select>
         <select id="days-select" name="days">
+          <option value="0">全部</option>
           <option value="5">5天</option>
           <option value="20">20天</option>
-          <option value="30">30天</option>
+          <option value="30" selected>30天</option>
           <option value="60">60天</option>
           <option value="120">120天</option>
-          <option value="250" selected>250天</option>
+          <option value="250">250天</option>
         </select>
         <select id="source-select" name="source">
           <option value="mootdx" selected>通达信</option>
@@ -771,10 +894,11 @@ iframe {{
         <span class="status" id="status">入口：http://{html.escape(host)}:{port}/</span>
       </form>
     </div>
-    <nav class="quick-list">
-      <div class="quick-buttons" id="quick-list"></div>
-      <button class="logic-button" id="logic-open" type="button">划分逻辑</button>
-    </nav>
+	    <nav class="quick-list">
+	      <div class="quick-buttons" id="quick-list"></div>
+	      <button class="logic-button" id="update-log-open" type="button">更新日志</button>
+	      <button class="logic-button" id="logic-open" type="button">划分逻辑</button>
+	    </nav>
   </header>
   <main class="frame-wrap">
     <iframe id="chart-frame" title="缠论图表" src="{chart_url}"></iframe>
@@ -809,11 +933,13 @@ var segAlgoSelect = document.getElementById('seg-algo-select');
 var frame = document.getElementById('chart-frame');
 var quickList = document.getElementById('quick-list');
 var statusEl = document.getElementById('status');
-var autoRefreshBtn = document.getElementById('auto-refresh-btn');
-var logicOpenBtn = document.getElementById('logic-open');
-var logicModal = document.getElementById('logic-modal');
-var logicCloseBtn = document.getElementById('logic-close');
-var logicBody = document.getElementById('logic-body');
+	var autoRefreshBtn = document.getElementById('auto-refresh-btn');
+	var logicOpenBtn = document.getElementById('logic-open');
+	var updateLogOpenBtn = document.getElementById('update-log-open');
+	var logicModal = document.getElementById('logic-modal');
+	var logicTitle = document.getElementById('logic-title');
+	var logicCloseBtn = document.getElementById('logic-close');
+	var logicBody = document.getElementById('logic-body');
 var hostSegNotePopover = document.getElementById('host-seg-note-popover');
 var hostSegNoteHead = document.getElementById('host-seg-note-popover-head');
 var hostSegNoteTitle = document.getElementById('host-seg-note-popover-title');
@@ -829,8 +955,9 @@ var lastDataFetchText = '';
 var isDraggingHostSegNote = false;
 var hostSegNoteDragStartX = 0;
 var hostSegNoteDragStartY = 0;
-var hostSegNoteStartLeft = 0;
-var hostSegNoteStartTop = 0;
+	var hostSegNoteStartLeft = 0;
+	var hostSegNoteStartTop = 0;
+	var activeModalTrigger = logicOpenBtn;
 
 function buildUrl(code, cacheBust) {{
   var params = new URLSearchParams();
@@ -1072,18 +1199,58 @@ function initLogicTabs() {{
   var active = logicBody.querySelector('.logic-tab.active[data-logic-tab]');
   activate(active ? active.getAttribute('data-logic-tab') : tabs[0].getAttribute('data-logic-tab'));
 }}
-function openLogicModal() {{
-  logicBody.innerHTML = getLogicHtmlFromFrame();
-  initLogicTabs();
-  logicModal.classList.add('active');
+	function openLogicModal() {{
+	  activeModalTrigger = logicOpenBtn;
+	  logicTitle.textContent = '划分逻辑';
+	  logicBody.innerHTML = getLogicHtmlFromFrame();
+	  initLogicTabs();
+	  logicModal.classList.add('active');
   logicModal.setAttribute('aria-hidden', 'false');
   logicCloseBtn.focus();
-}}
-function closeLogicModal() {{
-  logicModal.classList.remove('active');
-  logicModal.setAttribute('aria-hidden', 'true');
-  logicOpenBtn.focus();
-}}
+	}}
+	function escapeHtml(value) {{
+	  return String(value || '').replace(/[&<>"']/g, function(ch) {{
+	    return ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}})[ch];
+	  }});
+	}}
+	function renderUpdateLog(items) {{
+	  if (!items || !items.length) {{
+	    return '<h1>更新日志</h1><p>暂无更新记录。</p>';
+	  }}
+	  var rows = items.map(function(item) {{
+	    var source = item.source === 'manual' ? '人工记录' : ('git ' + escapeHtml(item.hash || ''));
+	    var body = item.body ? '<pre><code>' + escapeHtml(item.body) + '</code></pre>' : '';
+	    return '<div class="logic-card">' +
+	      '<h3>' + escapeHtml(item.time || '-') + ' · ' + source + '</h3>' +
+	      '<p>' + escapeHtml(item.title || '') + '</p>' + body +
+	      '</div>';
+	  }}).join('');
+	  return '<h1>更新日志</h1><div class="logic-grid">' + rows + '</div>';
+	}}
+	function openUpdateLogModal() {{
+	  activeModalTrigger = updateLogOpenBtn;
+	  logicTitle.textContent = '更新日志';
+	  logicBody.innerHTML = '<p>正在读取更新日志...</p>';
+	  logicModal.classList.add('active');
+	  logicModal.setAttribute('aria-hidden', 'false');
+	  logicCloseBtn.focus();
+	  fetch('update-log', {{cache:'no-store'}})
+	    .then(function(resp) {{
+	      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+	      return resp.json();
+	    }})
+	    .then(function(data) {{
+	      logicBody.innerHTML = renderUpdateLog(data.items || []);
+	    }})
+	    .catch(function(err) {{
+	      logicBody.innerHTML = '<h1>更新日志</h1><p>读取失败：' + escapeHtml(err.message) + '</p>';
+	    }});
+	}}
+	function closeLogicModal() {{
+	  logicModal.classList.remove('active');
+	  logicModal.setAttribute('aria-hidden', 'true');
+	  if (activeModalTrigger) activeModalTrigger.focus();
+	}}
 function clampHostSegNotePosition(leftPx, topPx) {{
   var maxLeft = Math.max(8, window.innerWidth - hostSegNotePopover.offsetWidth - 8);
   var maxTop = Math.max(0, window.innerHeight - hostSegNotePopover.offsetHeight - 8);
@@ -1178,11 +1345,12 @@ window.addEventListener('message', function(event) {{
     statusEl.textContent = chartStatus('已增量更新');
   }}
 }});
-autoRefreshBtn.addEventListener('click', function() {{
-  setAutoRefresh(!autoRefreshEnabled);
-}});
-logicOpenBtn.addEventListener('click', openLogicModal);
-logicCloseBtn.addEventListener('click', closeLogicModal);
+	autoRefreshBtn.addEventListener('click', function() {{
+	  setAutoRefresh(!autoRefreshEnabled);
+	}});
+	logicOpenBtn.addEventListener('click', openLogicModal);
+	updateLogOpenBtn.addEventListener('click', openUpdateLogModal);
+	logicCloseBtn.addEventListener('click', closeLogicModal);
 hostSegNoteClose.addEventListener('click', function(e) {{
   e.preventDefault();
   e.stopPropagation();
@@ -1253,6 +1421,9 @@ class ChanChartHandler(BaseHTTPRequestHandler):
         if path == "/chart-fragment":
             self.handle_chart_fragment(parsed.query)
             return
+        if path == "/update-log":
+            self.handle_update_log(parsed.query)
+            return
         if path == "/healthz":
             self.respond_json({"ok": True})
             return
@@ -1261,15 +1432,15 @@ class ChanChartHandler(BaseHTTPRequestHandler):
     def handle_chart(self, query: str):
         params = parse_qs(query)
         code = (params.get("code") or [DEFAULT_CODE])[0]
-        lv = (params.get("lv") or ["1m"])[0]
+        lv = (params.get("lv") or [DEFAULT_LV])[0]
         source = (params.get("source") or [DEFAULT_SOURCE])[0]
         seg_algo = (params.get("seg_algo") or [DEFAULT_SEG_ALGO])[0]
         try:
-            days = int((params.get("days") or ["250"])[0])
+            days = int((params.get("days") or [str(DEFAULT_DAYS)])[0])
         except ValueError:
-            days = 250
+            days = DEFAULT_DAYS
         try:
-            html_text, _signature = build_chart_payload(code, lv, days, source, seg_algo)
+            html_text, _signature = build_chart_payload_with_timeout(code, lv, days, source, seg_algo)
             self.respond_html(html_text)
         except Exception as err:
             detail = traceback.format_exc()
@@ -1278,16 +1449,16 @@ class ChanChartHandler(BaseHTTPRequestHandler):
     def handle_chart_fragment(self, query: str):
         params = parse_qs(query)
         code = (params.get("code") or [DEFAULT_CODE])[0]
-        lv = (params.get("lv") or ["1m"])[0]
+        lv = (params.get("lv") or [DEFAULT_LV])[0]
         source = (params.get("source") or [DEFAULT_SOURCE])[0]
         seg_algo = (params.get("seg_algo") or [DEFAULT_SEG_ALGO])[0]
         known_sig = (params.get("known_sig") or [""])[0]
         try:
-            days = int((params.get("days") or ["250"])[0])
+            days = int((params.get("days") or [str(DEFAULT_DAYS)])[0])
         except ValueError:
-            days = 250
+            days = DEFAULT_DAYS
         try:
-            html_text, signature = build_chart_payload(code, lv, days, source, seg_algo)
+            html_text, signature = build_chart_payload_with_timeout(code, lv, days, source, seg_algo)
             body = {
                 "changed": signature != known_sig,
                 "signature": signature,
@@ -1302,6 +1473,14 @@ class ChanChartHandler(BaseHTTPRequestHandler):
                 {"changed": False, "error": str(err), "detail": detail},
                 status=HTTPStatus.INTERNAL_SERVER_ERROR,
             )
+
+    def handle_update_log(self, query: str):
+        params = parse_qs(query)
+        try:
+            limit = int((params.get("limit") or ["20"])[0])
+        except ValueError:
+            limit = 20
+        self.respond_json({"items": build_update_log(limit)})
 
     def respond_html(self, body: str, status: HTTPStatus = HTTPStatus.OK):
         data = body.encode("utf-8")
