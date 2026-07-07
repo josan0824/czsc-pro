@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from Bi.Bi import CBi
 from Combiner.Combine_Item import CCombine_Item
-from Common.CEnum import BI_DIR, KLINE_DIR, KL_TYPE, SEG_TYPE
+from Common.CEnum import BI_DIR, FX_TYPE, KLINE_DIR, KL_TYPE, SEG_TYPE
 from Common.func_util import revert_bi_dir
 
 from .Eigen import CEigen
@@ -96,6 +96,33 @@ class CEigenFXV2(CEigenFX):
            (self.is_down() and self.ele[1].low > self.ele[0].low):
             return self.reset()
         return False
+
+    def treat_third_ele(self, bi: CBi) -> bool:
+        assert self.ele[0] is not None
+        assert self.ele[1] is not None
+        self.last_evidence_bi = bi
+        self.last_evidence_bi_is_sure = bi.is_used_to_be_sure
+        allow_top_equal = (1 if bi.is_down() else -1) if self.exclude_included else None
+
+        if self.allow_first_second_include:
+            combine_dir = self.ele[1].try_add(bi, allow_top_equal=allow_top_equal)
+        else:
+            combine_dir = self.ele[1].try_add(
+                bi,
+                exclude_included=True,
+                allow_top_equal=allow_top_equal,
+            )
+        if combine_dir == KLINE_DIR.COMBINE:
+            return False
+
+        ele_dir = self.kl_dir if combine_dir == KLINE_DIR.INCLUDED else combine_dir
+        self.ele[2] = CEigen(bi, ele_dir)
+        if not self.actual_break():
+            return self.reset()
+        self.ele[1].update_fx(self.ele[0], self.ele[2], exclude_included=self.exclude_included, allow_top_equal=allow_top_equal)  # type: ignore
+        fx = self.ele[1].fx
+        is_fx = (self.is_up() and fx == FX_TYPE.TOP) or (self.is_down() and fx == FX_TYPE.BOTTOM)
+        return True if is_fx else self.reset()
 
     def reset(self):
         bi_tmp_list = list(self.lst[1:])
