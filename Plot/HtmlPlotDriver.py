@@ -778,7 +778,7 @@ window.addEventListener('message', function(event) {{
       </div>
       <div class="logic-card">
         <h3>区间必须通过验证</h3>
-        <p>当前 <code>bi_fx_check=totally</code>，使用最严格的完全分离检查。它要求两个端点分型的三根合并 K 区间完全错开；即使是成笔后的终点更新，也要用最终起点和新终点复验。终点更新不能借用缺口后反向豁免跳过该检查，区间重合时不能成为有效端点。</p>
+        <p>当前 <code>bi_fx_check=totally</code>，使用最严格的完全分离检查。它要求两个端点分型的三根合并 K 区间完全错开；若候选笔命中有效破格缺口，或从破格缺口笔终点发起第一条反向候选笔，则可豁免这项区间检查。</p>
       </div>
     </div>
   </section>
@@ -798,7 +798,7 @@ window.addEventListener('message', function(event) {{
   </section>
   <section class="logic-tab-panel" data-logic-panel="gap">
     <h2>5. 缺口处理</h2>
-    <p>当前算法没有把缺口作为分型的独立确认条件。缺口主要影响两个位置：一是笔在跨度不足时是否允许破格成笔，二是 <code>seg_algo=chan</code> 线段算法里的特征序列分型确认。</p>
+    <p>当前算法没有把缺口作为分型的独立确认条件。缺口主要影响三个位置：一是笔在跨度不足时是否允许破格成笔，二是破格缺口笔及其后一条反向候选笔是否豁免 <code>bi_fx_check</code> 区间检查，三是 <code>seg_algo=chan</code> 线段算法里的特征序列分型确认。</p>
     <div class="logic-grid">
       <div class="logic-card">
         <h3>缺口如何识别</h3>
@@ -812,7 +812,7 @@ window.addEventListener('message', function(event) {{
       <div class="logic-card">
         <h3>当前页面配置</h3>
         <p>当前图表服务没有显式设置 <code>gap_as_kl</code>，因此走 <code>CChanConfig</code> 默认值 <code>gap_as_kl=True</code>。</p>
-        <p>实际效果：缺口不会累计增加 K 线数量，只在反向跳空严格突破前一笔起点极值时，豁免该候选笔的最小跨度限制。</p>
+        <p>实际效果：缺口不会累计增加 K 线数量。只有反向跳空严格突破前一笔起点极值时，才构成有效破格缺口；该候选笔可豁免最小跨度和 <code>bi_fx_check</code>，其终点后的第一条反向候选笔也可豁免 <code>bi_fx_check</code>。</p>
       </div>
     </div>
     <div class="logic-rule-table">
@@ -820,7 +820,7 @@ window.addEventListener('message', function(event) {{
       <div><strong>gap_as_kl=True</strong><span>检查候选区间内是否存在有效破格缺口。向上笔要求向上跳空的缺口上沿严格高于前一笔起点顶；向下笔要求向下跳空的缺口下沿严格低于前一笔起点底。</span></div>
     </div>
     <div class="logic-example">
-      <strong>笔的例子：</strong>严格模式下成笔要求跨度至少为 4。当前 <code>gap_as_kl=True</code> 时不会把每个缺口都补成一根 K；只有第一个满足反向突破前一笔起点极值的缺口，才允许候选笔跳过跨度和 <code>bi_fx_check</code> 区间重叠限制。
+      <strong>笔的例子：</strong>严格模式下成笔要求跨度至少为 4。当前 <code>gap_as_kl=True</code> 时不会把每个缺口都补成一根 K；只有第一个满足反向突破前一笔起点极值的缺口，才允许缺口候选笔跳过跨度和 <code>bi_fx_check</code> 区间重叠限制。若该缺口候选笔成立，从其终点发起的第一条反向候选笔也允许跳过 <code>bi_fx_check</code>，但不豁免跨度和端点极值。
     </div>
     <div class="logic-grid">
       <div class="logic-card">
@@ -829,11 +829,11 @@ window.addEventListener('message', function(event) {{
       </div>
       <div class="logic-card">
         <h3>缺口与成笔验证</h3>
-        <p>缺口破格会影响 <code>satisfy_bi_span</code> 和 <code>bi_fx_check</code>。有效反向跳空突破前一笔起点极值后，即使端点分型三 K 区间重叠或共用 K，也允许成笔；但仍必须通过顶底交替、同类极值替换和 <code>bi_end_is_peak</code> 等端点极值条件。</p>
+        <p>缺口破格会影响 <code>satisfy_bi_span</code> 和 <code>bi_fx_check</code>。有效反向跳空突破前一笔起点极值后，即使破格候选笔两端分型三 K 区间重叠或共用 K，也允许继续成笔校验；但仍必须通过顶底交替、同类极值替换和 <code>bi_end_is_peak</code> 等端点极值条件。</p>
       </div>
       <div class="logic-card">
         <h3>缺口后的反向分型</h3>
-        <p>缺口破格笔成立后，缺口区间不作为后续反向分型的禁区。紧接着从缺口笔终点发起的反向候选笔，如果跨度和端点极值满足要求，即使三 K 区间与前一缺口区间重合，也允许跳过 <code>bi_fx_check</code>；该豁免只作用于缺口笔之后的第一条反向候选，不会连续借用同一个缺口生成多笔。</p>
+        <p>缺口破格笔成立后，缺口区间不作为后续反向分型的禁区。紧接着从缺口笔终点发起的第一条反向候选笔，如果跨度、端点极值满足要求，并且反向端点实际触碰缺口边界，即向下缺口后的反弹顶到达缺口下沿、向上缺口后的回落底到达缺口上沿，即使该反向笔两端分型三 K 区间重叠，也允许跳过 <code>bi_fx_check</code>；该双向豁免只作用于缺口笔之后的第一条反向候选，不会连续借用同一个缺口生成多笔。</p>
       </div>
       <div class="logic-card">
         <h3>缺口与线段</h3>
@@ -1226,8 +1226,8 @@ for bi in begin_next ... window_end:
                 notes.append({
                     "html": (
                         f'缺口后反向成笔：上一笔为{gap_direction}破格笔，当前笔从该缺口笔终点发起；'
-                        f'缺口区间只作为背景标记，不再豁免 <code>bi_fx_check</code>；'
-                        f'当前笔仍必须通过最终顶底分型三K区间检查、跨度和端点极值。'
+                        f'允许借用该破格缺口豁免 <code>bi_fx_check</code> 三K区间检查；'
+                        f'当前笔仍必须通过跨度、顶底交替和端点极值。'
                     )
                 })
             if not bi.is_sure:
@@ -1253,6 +1253,8 @@ for bi in begin_next ... window_end:
                 "status": "有效" if bi.is_sure else "未确认",
                 "notes": notes,
                 "target_idx": int(bi.end_x),
+                "gap_break": bool(bi.gap_break),
+                "gap_retrace": bool(getattr(bi, "gap_retrace", None)),
             })
 
         pen_by_source_idx = {row["source_idx"]: row for row in pen_rows}
@@ -1450,12 +1452,17 @@ for bi in begin_next ... window_end:
                 if end_pen and any("终点" in role for role in endpoint_roles):
                     begin_row = row_by_klc_idx.get(end_pen["begin_klc_idx"])
                     if begin_row:
+                        gap_exemption_text = (
+                            f'该笔命中缺口规则，允许豁免 <code>bi_fx_check</code>。'
+                            if end_pen["gap_break"] or end_pen["gap_retrace"]
+                            else ''
+                        )
                         notes.append({
                             "html": (
                                 f'最终端点复验：作为第{end_pen["idx"]}笔终点时，必须用该笔起点 '
                                 f'{self._fx_note_ref(begin_row)} 与当前端点重新检查；'
                                 f'{totally_check_html(begin_row, row)}。'
-                                f'终点更新路径不借用缺口后反向豁免。'
+                                f'{gap_exemption_text}'
                             )
                         })
                 if prev_same and prev_same["status"] != "有效":
@@ -1712,6 +1719,15 @@ for bi in begin_next ... window_end:
             valid_fractal_idx.add(int(bi.end_klc_idx))
 
         fractals = []
+        def klc_has_gap_with_next(klc_pos: int) -> bool:
+            current = meta.klc_list[klc_pos]
+            next_klc = meta.klc_list[klc_pos + 1]
+            current_low = min(float(klu.low) for klu in current.klu_list)
+            current_high = max(float(klu.high) for klu in current.klu_list)
+            next_low = min(float(klu.low) for klu in next_klc.klu_list)
+            next_high = max(float(klu.high) for klu in next_klc.klu_list)
+            return current_high < next_low or current_low > next_high
+
         for klc_pos, klc in enumerate(meta.klc_list):
             if klc.type not in (FX_TYPE.TOP, FX_TYPE.BOTTOM):
                 continue
@@ -1726,6 +1742,11 @@ for bi in begin_next ... window_end:
                     box_end = max(box_end, neighbor.end_idx)
                     box_high = max(box_high, float(neighbor.high))
                     box_low = min(box_low, float(neighbor.low))
+            has_gap = False
+            for gap_pos in (klc_pos - 1, klc_pos):
+                if 0 <= gap_pos < len(meta.klc_list) - 1 and klc_has_gap_with_next(gap_pos):
+                    has_gap = True
+                    break
             x = left + (klc.begin_idx + klc.end_idx) * bar_w / 2 + bar_w / 2
             price = float(klc.high if klc.type == FX_TYPE.TOP else klc.low)
             fractals.append({
@@ -1737,6 +1758,7 @@ for bi in begin_next ... window_end:
                 "y": round(yp(price), 1),
                 "date": klc.klu_list[len(klc.klu_list) // 2].time.to_str() if klc.klu_list else "",
                 "valid": int(klc.idx) in valid_fractal_idx,
+                "gap": has_gap,
                 "row": len(fractals) + 1,
                 "boxX": round(left + box_start * bar_w - 1, 1),
                 "boxY": round(yp(box_high) - 1, 1),
@@ -2422,16 +2444,28 @@ function hoveredPen(e, p) {{
   var rowId = target.getAttribute('data-pen-row');
   return data.pens.find(function(item) {{ return String(item.row) === String(rowId); }}) || null;
 }}
-function showTip(idx, clientX, clientY, pen, p) {{
+function hoveredFractal(e) {{
+  var target = e && e.target && e.target.closest ? e.target.closest('.chart-fractal-marker[data-fx-row],.chart-price-label[data-fx-row]') : null;
+  if (!target) return null;
+  var rowId = target.getAttribute('data-fx-row');
+  return data.fractals.find(function(item) {{ return String(item.row) === String(rowId); }}) || null;
+}}
+function fractalLabel(fx) {{
+  if (!fx) return '';
+  return (fx.kind === 'top' ? '顶分型' : '底分型') + ': ' + Number(fx.price).toFixed(2) + (fx.gap ? '(缺口)' : '');
+}}
+function showTip(idx, clientX, clientY, pen, p, fx) {{
   if (idx < 0 || idx >= data.bars.length) {{ tip.style.display = 'none'; return; }}
   var b = data.bars[idx];
   var penText = penLabel(pen, p);
-  var tipKey = idx + ':' + penText;
+  var fxText = fractalLabel(fx);
+  var tipKey = idx + ':' + penText + ':' + fxText;
   if (tipKey !== lastTipKey) {{
     selected.setAttribute('x1', b.x.toFixed(1));
     selected.setAttribute('x2', b.x.toFixed(1));
     selected.style.display = 'block';
     tip.innerHTML = (penText ? '<div><b>' + penText + '</b></div>' : '') +
+      (fxText ? '<div><b>' + fxText + '</b></div>' : '') +
       '<div><b>' + b.dt + '</b></div>' +
       '<div>开盘: ' + b.o.toFixed(2) + ' | 最高: ' + b.h.toFixed(2) + '</div>' +
       '<div>收盘: ' + b.c.toFixed(2) + ' | 最低: ' + b.l.toFixed(2) + '</div>';
@@ -2458,7 +2492,8 @@ function handleHover(e) {{
   if (crosshairEnabled) {{ crosshairPoint = p; updateCrosshair(); }}
   var idx = nearestBar(e.clientX);
   var pen = hoveredPen(e, p);
-  if (idx >= 0 && p.y >= top && p.y <= chartH - bottom) showTip(idx, e.clientX, e.clientY, pen, p);
+  var fx = hoveredFractal(e);
+  if (idx >= 0 && p.y >= top && p.y <= chartH - bottom) showTip(idx, e.clientX, e.clientY, pen, p, fx);
   else hideTip();
 }}
 function scheduleHover(e) {{
