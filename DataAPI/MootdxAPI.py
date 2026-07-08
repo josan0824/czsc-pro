@@ -63,10 +63,10 @@ def create_item_dict(row):
 class CMootdx(CCommonStockApi):
     client = None
     current_server = None
-    default_server = ("110.41.147.114", 7709)
+    default_server = ("119.97.185.59", 7709)
     servers = [
-        ("110.41.147.114", 7709),
         ("119.97.185.59", 7709),
+        ("110.41.147.114", 7709),
     ]
 
     def __init__(self, code, k_type=KL_TYPE.K_1M, begin_date=None, end_date=None, autype=AUTYPE.NONE):
