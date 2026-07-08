@@ -144,6 +144,47 @@ class CEigenFXV2(CEigenFX):
     def _event_bi_span(left: _V2FxEvent, right: _V2FxEvent) -> int:
         return abs(right.peak_bi_idx - left.peak_bi_idx) + 1
 
+    def _event_note_text(self, event: _V2FxEvent, bi_list, label: Optional[str] = None) -> str:
+        fx_label = label or self._dir_fx_label(event.seg_dir)
+        detail = f"{fx_label}位置：第{event.peak_bi_idx + 1}笔"
+        if 0 <= event.peak_bi_idx < len(bi_list):
+            bi = bi_list[event.peak_bi_idx]
+            if fx_label == "顶分型":
+                if bi.is_down():
+                    position = (
+                        f"第{event.peak_bi_idx}笔终点 / 第{event.peak_bi_idx + 1}笔起点"
+                        if event.peak_bi_idx > 0 else f"第{event.peak_bi_idx + 1}笔起点"
+                    )
+                    klu = bi.get_begin_klu()
+                else:
+                    position = (
+                        f"第{event.peak_bi_idx + 1}笔终点 / 第{event.peak_bi_idx + 2}笔起点"
+                        if event.peak_bi_idx + 1 < len(bi_list) else f"第{event.peak_bi_idx + 1}笔终点"
+                    )
+                    klu = bi.get_end_klu()
+            else:
+                if bi.is_down():
+                    position = (
+                        f"第{event.peak_bi_idx + 1}笔终点 / 第{event.peak_bi_idx + 2}笔起点"
+                        if event.peak_bi_idx + 1 < len(bi_list) else f"第{event.peak_bi_idx + 1}笔终点"
+                    )
+                    klu = bi.get_end_klu()
+                else:
+                    position = (
+                        f"第{event.peak_bi_idx}笔终点 / 第{event.peak_bi_idx + 1}笔起点"
+                        if event.peak_bi_idx > 0 else f"第{event.peak_bi_idx + 1}笔起点"
+                    )
+                    klu = bi.get_begin_klu()
+            detail = f"{fx_label}位置：{position}（时间{klu.time}，价格{event.price:g}）"
+        else:
+            detail += f"（价格{event.price:g}）"
+        return detail
+
+    def _candidate_note_text(self, event: Optional[_V2FxEvent], bi_list, label: str) -> str:
+        if event is None:
+            return "当前还没有之前候选"
+        return self._event_note_text(event, bi_list, label)
+
     @staticmethod
     def _event_has_three_bi(left: _V2FxEvent, right: _V2FxEvent) -> bool:
         return abs(right.peak_bi_idx - left.peak_bi_idx) >= 2
@@ -313,18 +354,18 @@ class CEigenFXV2(CEigenFX):
                 span = self._event_bi_span(current_event, event)
                 if not self._event_has_three_bi(current_event, event):
                     self.v2_notes.append(
-                        f"找到相反{self._opposite_fx_label(self.dir)}：第{event.peak_bi_idx + 1}笔，"
-                        f"价格{event.price:g}；与当前{self._dir_fx_label(self.dir)}"
-                        f"第{current_event.peak_bi_idx + 1}笔跨度{span}笔，不满足至少3笔，暂不作为确认候选。"
+                        f"找到相反{self._event_note_text(event, bi_list, self._opposite_fx_label(self.dir))}；"
+                        f"与当前同类{self._event_note_text(current_event, bi_list, self._dir_fx_label(self.dir))}"
+                        f"跨度{span}笔，不满足至少3笔，暂不作为确认候选。"
                     )
                     continue
                 self.last_evidence_bi = bi_list[event.evidence_bi_idx]
                 self.last_evidence_bi_is_sure = event.all_sure
                 self.v2_final_all_sure = current_all_sure and event.all_sure
                 self.v2_notes.append(
-                    f"找到相反{self._opposite_fx_label(self.dir)}：第{event.peak_bi_idx + 1}笔，"
-                    f"价格{event.price:g}；与当前{self._dir_fx_label(self.dir)}"
-                    f"第{current_event.peak_bi_idx + 1}笔跨度{span}笔，满足至少3笔，"
+                    f"找到相反{self._event_note_text(event, bi_list, self._opposite_fx_label(self.dir))}；"
+                    f"与当前同类{self._event_note_text(current_event, bi_list, self._dir_fx_label(self.dir))}"
+                    f"跨度{span}笔，满足至少3笔，"
                     f"立即确认，并以前一个同类{self._dir_fx_label(self.dir)}"
                     f"第{current_event.peak_bi_idx + 1}笔作为线段端点。"
                 )
@@ -349,9 +390,9 @@ class CEigenFXV2(CEigenFX):
                         self.v2_final_all_sure = current_all_sure and exact_reverse.all_sure
                         self.v2_notes.append(
                             f"发现同向更极端笔端点：第{event.peak_bi_idx + 1}笔；"
-                            f"该笔正好确认相反{self._opposite_fx_label(self.dir)}"
-                            f"第{exact_reverse.peak_bi_idx + 1}笔，价格{exact_reverse.price:g}；"
-                            f"其与当前{self._dir_fx_label(self.dir)}第{current_event.peak_bi_idx + 1}笔"
+                            f"该笔正好确认相反"
+                            f"{self._event_note_text(exact_reverse, bi_list, self._opposite_fx_label(self.dir))}；"
+                            f"其与当前同类{self._event_note_text(current_event, bi_list, self._dir_fx_label(self.dir))}"
                             f"跨度{span}笔，满足至少3笔，相反特征分型优先，"
                             f"不替代线段候选端点，并以前一个同类{self._dir_fx_label(self.dir)}"
                             f"第{current_event.peak_bi_idx + 1}笔作为线段端点。"
@@ -359,9 +400,9 @@ class CEigenFXV2(CEigenFX):
                         return True
                     self.v2_notes.append(
                         f"发现同向更极端笔端点：第{event.peak_bi_idx + 1}笔；"
-                        f"该笔正好形成相反{self._opposite_fx_label(self.dir)}"
-                        f"第{exact_reverse.peak_bi_idx + 1}笔，但与当前"
-                        f"{self._dir_fx_label(self.dir)}第{current_event.peak_bi_idx + 1}笔"
+                        f"该笔正好形成相反"
+                        f"{self._event_note_text(exact_reverse, bi_list, self._opposite_fx_label(self.dir))}，但与当前同类"
+                        f"{self._event_note_text(current_event, bi_list, self._dir_fx_label(self.dir))}"
                         f"跨度{span}笔，不满足至少3笔，继续按同向端点替代检查。"
                     )
 
@@ -387,26 +428,37 @@ class CEigenFXV2(CEigenFX):
             if opposite_extreme is not None:
                 span = self._event_bi_span(opposite_extreme, event)
                 if not self._event_has_three_bi(opposite_extreme, event):
+                    previous_candidate = self._candidate_note_text(
+                        reverse_candidate,
+                        bi_list,
+                        self._opposite_fx_label(self.dir),
+                    )
                     self.v2_notes.append(
-                        f"中间最极端相反{self._opposite_fx_label(self.dir)}"
-                        f"第{opposite_extreme.peak_bi_idx + 1}笔与最新同类分型跨度{span}笔，"
-                        f"不满足至少3笔，不替代之前的相反{self._opposite_fx_label(self.dir)}候选。"
+                        f"中间最极端相反"
+                        f"{self._event_note_text(opposite_extreme, bi_list, self._opposite_fx_label(self.dir))}"
+                        f"与最新同类{self._event_note_text(event, bi_list, self._dir_fx_label(self.dir))}"
+                        f"跨度{span}笔，"
+                        f"不满足至少3笔，不替代之前的相反{self._opposite_fx_label(self.dir)}候选："
+                        f"{previous_candidate}。"
                     )
                     continue
                 if reverse_candidate is None or self._is_more_extreme_opposite(opposite_extreme, reverse_candidate, self.dir):
-                    old_reverse_text = (
-                        f"第{reverse_candidate.peak_bi_idx + 1}笔"
-                        if reverse_candidate is not None else "空候选"
+                    old_reverse_text = self._candidate_note_text(
+                        reverse_candidate,
+                        bi_list,
+                        self._opposite_fx_label(self.dir),
                     )
                     reverse_candidate = opposite_extreme
                     self.v2_notes.append(
-                        f"中间最极端相反{self._opposite_fx_label(self.dir)}位于第{opposite_extreme.peak_bi_idx + 1}笔，"
-                        f"与最新同类分型跨度{span}笔，满足至少3笔；用它替代之前的相反"
+                        f"中间最极端相反{self._event_note_text(opposite_extreme, bi_list, self._opposite_fx_label(self.dir))}，"
+                        f"与最新同类{self._event_note_text(event, bi_list, self._dir_fx_label(self.dir))}"
+                        f"跨度{span}笔，满足至少3笔；用它替代之前的相反"
                         f"{self._opposite_fx_label(self.dir)}候选（{old_reverse_text}）。"
                     )
                 else:
                     self.v2_notes.append(
-                        f"中间最极端相反{self._opposite_fx_label(self.dir)}位于第{opposite_extreme.peak_bi_idx + 1}笔，"
+                        f"中间最极端相反{self._event_note_text(opposite_extreme, bi_list, self._opposite_fx_label(self.dir))}，"
+                        f"与最新同类{self._event_note_text(event, bi_list, self._dir_fx_label(self.dir))}"
                         f"跨度{span}笔，满足至少3笔，但未比当前相反候选更极端，不替代。"
                     )
             else:
