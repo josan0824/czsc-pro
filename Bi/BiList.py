@@ -125,18 +125,30 @@ class CBiList:
         last_bi = self.bi_list[-1]
         if last_bi.end_klc.idx != self.last_end.idx:
             return False
-        if not self.can_make_bi(opposite_klc, replacement):
+        hypothetical_previous_bi = self.make_hypothetical_last_bi(replacement)
+        if not self.can_make_bi(opposite_klc, replacement, previous_bi_override=hypothetical_previous_bi):
             return False
         last_bi.update_new_end(replacement)
         self.last_end = replacement
         return True
+
+    def make_hypothetical_last_bi(self, replacement: CKLine) -> CBi:
+        last_bi = self.bi_list[-1]
+        hypothetical_bi = CBi(last_bi.begin_klc, replacement, idx=last_bi.idx, is_sure=last_bi.is_sure)
+        hypothetical_bi.pre = last_bi.pre
+        hypothetical_bi.next = last_bi.next
+        return hypothetical_bi
 
     def find_better_same_fx_before_opposite(self, opposite_klc: CKLine) -> Optional[CKLine]:
         replacement = None
         current = self.last_end.next
         while current is not None and current.idx < opposite_klc.idx:
             if current.fx == self.last_end.fx and self.is_better_same_fx(current, self.last_end):
-                can_make = self.can_make_bi(opposite_klc, current)
+                can_make = self.can_make_bi(
+                    opposite_klc,
+                    current,
+                    previous_bi_override=self.make_hypothetical_last_bi(current),
+                )
                 if can_make:
                     replacement = current
             current = current.next
@@ -186,21 +198,21 @@ class CBiList:
             self.bi_list[-2].next = self.bi_list[-1]
             self.bi_list[-1].pre = self.bi_list[-2]
 
-    def satisfy_bi_span(self, klc: CKLine, last_end: CKLine):
+    def satisfy_bi_span(self, klc: CKLine, last_end: CKLine, previous_bi_override: Optional[CBi] = None):
         bi_span = self.get_klc_span(klc, last_end)
         if self.config.is_strict:
-            return bi_span >= 4 or self.has_gap_break_bi(klc, last_end)
+            return bi_span >= 4 or self.has_gap_break_bi(klc, last_end, previous_bi_override)
         uint_kl_cnt = 0
         tmp_klc = last_end.next
         while tmp_klc:
             uint_kl_cnt += len(tmp_klc.lst)
             if not tmp_klc.next:  # 最后尾部虚笔的时候，可能klc.idx == last_end.idx+1
-                return self.has_gap_break_bi(klc, last_end)
+                return self.has_gap_break_bi(klc, last_end, previous_bi_override)
             if tmp_klc.next.idx < klc.idx:
                 tmp_klc = tmp_klc.next
             else:
                 break
-        return (bi_span >= 3 and uint_kl_cnt >= 3) or self.has_gap_break_bi(klc, last_end)
+        return (bi_span >= 3 and uint_kl_cnt >= 3) or self.has_gap_break_bi(klc, last_end, previous_bi_override)
 
     def get_klc_span(self, klc: CKLine, last_end: CKLine) -> int:
         return klc.idx - last_end.idx
@@ -211,26 +223,26 @@ class CBiList:
                 return bi
         return None
 
-    def get_gap_break_info(self, klc: CKLine, last_end: CKLine) -> Optional[Dict[str, Any]]:
+    def get_gap_break_info(self, klc: CKLine, last_end: CKLine, previous_bi_override: Optional[CBi] = None) -> Optional[Dict[str, Any]]:
         if not self.config.gap_as_kl:
             return None
-        previous_bi = self.get_previous_bi(last_end)
+        previous_bi = previous_bi_override if previous_bi_override is not None else self.get_previous_bi(last_end)
         return get_gap_break_info(previous_bi, last_end, klc)
 
-    def get_gap_retrace_info(self, klc: CKLine, last_end: CKLine, for_virtual: bool = False) -> Optional[Dict[str, Any]]:
+    def get_gap_retrace_info(self, klc: CKLine, last_end: CKLine, for_virtual: bool = False, previous_bi_override: Optional[CBi] = None) -> Optional[Dict[str, Any]]:
         if not self.config.gap_as_kl:
             return None
-        previous_bi = self.get_previous_bi(last_end)
+        previous_bi = previous_bi_override if previous_bi_override is not None else self.get_previous_bi(last_end)
         return get_gap_retrace_info(previous_bi, last_end, klc, for_virtual=for_virtual)
 
-    def has_gap_break_bi(self, klc: CKLine, last_end: CKLine) -> bool:
+    def has_gap_break_bi(self, klc: CKLine, last_end: CKLine, previous_bi_override: Optional[CBi] = None) -> bool:
         # 有效破格缺口会豁免最小K线跨度；can_make_bi 中还会豁免分型区间重叠检查。
-        return self.get_gap_break_info(klc, last_end) is not None
+        return self.get_gap_break_info(klc, last_end, previous_bi_override) is not None
 
-    def can_make_bi(self, klc: CKLine, last_end: CKLine, for_virtual: bool = False):
-        gap_break_info = self.get_gap_break_info(klc, last_end)
-        gap_retrace_info = self.get_gap_retrace_info(klc, last_end, for_virtual=for_virtual)
-        satisify_span = True if self.config.bi_algo == 'fx' else self.satisfy_bi_span(klc, last_end)
+    def can_make_bi(self, klc: CKLine, last_end: CKLine, for_virtual: bool = False, previous_bi_override: Optional[CBi] = None):
+        gap_break_info = self.get_gap_break_info(klc, last_end, previous_bi_override)
+        gap_retrace_info = self.get_gap_retrace_info(klc, last_end, for_virtual=for_virtual, previous_bi_override=previous_bi_override)
+        satisify_span = True if self.config.bi_algo == 'fx' else self.satisfy_bi_span(klc, last_end, previous_bi_override)
         if not satisify_span:
             return False
         if gap_break_info is None and gap_retrace_info is None and not last_end.check_fx_valid(klc, self.config.bi_fx_check, for_virtual):
