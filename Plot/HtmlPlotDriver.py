@@ -1414,6 +1414,93 @@ for bi in begin_next ... window_end:
         def totally_check_html(start: Dict[str, Any], end: Dict[str, Any]) -> str:
             return totally_check_result(start, end)[1]
 
+        klc_by_idx = {int(klc.idx): klc for klc in meta.klc_list}
+
+        def end_peak_check_result(start: Dict[str, Any], end: Dict[str, Any]) -> str:
+            start_idx = int(start["klc_idx"])
+            end_idx = int(end["klc_idx"])
+            if end_idx <= start_idx:
+                return "端点极值检查：候选终点必须晚于起点，结果：不通过"
+            if start["kind"] == "bottom" and end["kind"] == "top":
+                threshold = float(end["price"])
+                blockers = [
+                    klc for idx, klc in klc_by_idx.items()
+                    if start_idx < idx < end_idx and float(klc.high) > threshold
+                ]
+                if blockers:
+                    blocker = blockers[0]
+                    return (
+                        f'端点极值检查：起点到底分型、终点到顶分型之间不能先出现高于候选顶的合并K；'
+                        f'合并K #{int(blocker.idx)} 高点 {_fmt_num(float(blocker.high))} '
+                        f'&gt; 候选顶 {_fmt_num(threshold)}，结果：不通过'
+                    )
+                return "端点极值检查：中间合并K未突破候选顶，结果：通过"
+            if start["kind"] == "top" and end["kind"] == "bottom":
+                threshold = float(end["price"])
+                blockers = [
+                    klc for idx, klc in klc_by_idx.items()
+                    if start_idx < idx < end_idx and float(klc.low) < threshold
+                ]
+                if blockers:
+                    blocker = blockers[0]
+                    return (
+                        f'端点极值检查：起点到顶分型、终点到底分型之间不能先出现低于候选底的合并K；'
+                        f'合并K #{int(blocker.idx)} 低点 {_fmt_num(float(blocker.low))} '
+                        f'&lt; 候选底 {_fmt_num(threshold)}，结果：不通过'
+                    )
+                return "端点极值检查：中间合并K未跌破候选底，结果：通过"
+            return "端点极值检查：同类分型不能直接构成一笔，结果：不通过"
+
+        def end_peak_check_ok(start: Dict[str, Any], end: Dict[str, Any]) -> bool:
+            return "结果：通过" in end_peak_check_result(start, end)
+
+        def span_check_result(start: Dict[str, Any], end: Dict[str, Any]) -> tuple[bool, str]:
+            span = abs(int(end["klc_idx"]) - int(start["klc_idx"]))
+            ok = span >= 4
+            return ok, f'合并K跨度={span}，严格模式要求 ≥ 4，结果：{"通过" if ok else "不通过"}'
+
+        def span_check_html(start: Dict[str, Any], end: Dict[str, Any]) -> str:
+            return span_check_result(start, end)[1]
+
+        def candidate_bi_check(start: Dict[str, Any], end: Dict[str, Any]) -> Dict[str, Any]:
+            span_ok, span_text = span_check_result(start, end)
+            totally_ok, totally_text = totally_check_result(start, end)
+            peak_text = end_peak_check_result(start, end)
+            peak_ok = end_peak_check_ok(start, end)
+            failed: list[str] = []
+            if not span_ok:
+                failed.append(span_text)
+            if totally_ok is not True:
+                failed.append(totally_text)
+            if not peak_ok:
+                failed.append(peak_text)
+            return {
+                "ok": span_ok and totally_ok is True and peak_ok,
+                "html": f'{span_text}；{totally_text}；{peak_text}',
+                "failed": failed,
+            }
+
+        def check_conclusion_html(title: str, check: Dict[str, Any], pass_text: str) -> str:
+            if check["ok"]:
+                return f'{title}结论：通过。{pass_text}'
+            return f'{title}结论：不通过；失败项：{"；".join(check["failed"])}。'
+
+        def update_previous_pen_check(prev_same: Dict[str, Any], row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+            previous_pen = next((pen for pen in pen_rows if pen["end_klc_idx"] == prev_same["klc_idx"]), None)
+            if not previous_pen:
+                return None
+            begin_row = row_by_klc_idx.get(previous_pen["begin_klc_idx"])
+            if not begin_row:
+                return None
+            check = candidate_bi_check(begin_row, row)
+            html_text = (
+                f'若尝试把第{previous_pen["idx"]}笔终点从 {self._fx_note_ref(prev_same, pen_row=previous_pen)} '
+                f'改写为当前分型：该笔起点为 {self._fx_note_ref(begin_row, pen_row=previous_pen)}；'
+                f'{check["html"]}。'
+                f'{check_conclusion_html("上一笔终点改写校验", check, "当前分型具备替换上一笔终点的静态条件；不能把上一笔改写校验失败作为过滤原因。")}'
+            )
+            return {"pen": previous_pen, "begin_row": begin_row, "check": check, "html": html_text}
+
         def containing_pen(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             return next(
                 (
@@ -1493,13 +1580,49 @@ for bi in begin_next ... window_end:
                 elif prev_valid["kind"] == row["kind"]:
                     current_more_extreme = row["price"] >= prev_valid["price"] if row["kind"] == "top" else row["price"] <= prev_valid["price"]
                     if current_more_extreme:
-                        reason = (
-                            f'当前{_fx_label(row["kind"])}价格 {_fmt_num(row["price"])} '
-                            f'比前一有效同类 {_fmt_num(prev_valid["price"])} 更极端，但最终笔端点没有改写到当前分型；'
-                            f'这说明它在 <code>CBiList.update_bi_sure</code> 流程中没有成功成为上一笔的新端点，'
-                            f'随后被最终笔结构归入笔内部波动。'
+                        update_check = update_previous_pen_check(prev_valid, row)
+                        next_check = (
+                            candidate_bi_check(row, next_valid)
+                            if next_valid and next_valid["kind"] != row["kind"]
+                            else None
                         )
+                        if not update_check:
+                            reason = (
+                                f'当前{_fx_label(row["kind"])}价格 {_fmt_num(row["price"])} '
+                                f'比前一有效同类 {_fmt_num(prev_valid["price"])} 更极端，但没有找到以上一有效同类分型为终点的上一笔，'
+                                f'无法执行上一笔终点改写复验；最终结构将当前分型归入笔内部波动。'
+                            )
+                        elif not update_check["check"]["ok"]:
+                            reason = (
+                                f'当前{_fx_label(row["kind"])}价格 {_fmt_num(row["price"])} '
+                                f'比前一有效同类 {_fmt_num(prev_valid["price"])} 更极端，但上一笔终点改写校验不通过；'
+                                f'失败项：{"；".join(update_check["check"]["failed"])}。'
+                                f'这就是 <code>CBiList.update_bi_sure</code> 没有把它改写为上一笔新终点的直接原因。'
+                            )
+                        elif next_check and not next_check["ok"]:
+                            reason = (
+                                f'当前{_fx_label(row["kind"])}价格 {_fmt_num(row["price"])} '
+                                f'比前一有效同类 {_fmt_num(prev_valid["price"])} 更极端，且上一笔终点改写校验通过；'
+                                f'但当前分型连接后续反向有效端点的承接校验不通过，失败项：{"；".join(next_check["failed"])}。'
+                                f'因此最终没有采用当前分型作为有效笔端点。'
+                            )
+                        elif next_check and next_check["ok"]:
+                            reason = (
+                                f'当前{_fx_label(row["kind"])}价格 {_fmt_num(row["price"])} '
+                                f'比前一有效同类 {_fmt_num(prev_valid["price"])} 更极端；'
+                                f'上一笔终点改写校验通过，连接后续反向有效端点的承接校验也通过。'
+                                f'按当前复验数据它应可成为有效端点；最终笔列表未采用，说明实际 '
+                                f'<code>CBiList.update_bi_sure</code> 更新链路与复验结果不一致，需要修复笔更新路径。'
+                            )
+                        else:
+                            reason = (
+                                f'当前{_fx_label(row["kind"])}价格 {_fmt_num(row["price"])} '
+                                f'比前一有效同类 {_fmt_num(prev_valid["price"])} 更极端，且上一笔终点改写校验通过；'
+                                f'但后续没有反向有效端点完成承接，因此最终没有形成以当前分型为端点的有效笔。'
+                            )
                     else:
+                        update_check = None
+                        next_check = None
                         reason = (
                             f'前一有效同类分型价格 {_fmt_num(prev_valid["price"])} '
                             f'比当前 {_fmt_num(row["price"])} 更极端，按同类极值规则当前候选较弱。'
@@ -1510,13 +1633,15 @@ for bi in begin_next ... window_end:
                             f'影响分型：{self._fx_note_ref(prev_valid)}；原因：{reason}'
                         )
                     })
+                    if update_check:
+                        notes.append({"html": update_check["html"]})
                     if next_valid and next_valid["kind"] != row["kind"]:
-                        span_to_next = abs(next_valid["klc_idx"] - row["klc_idx"])
+                        next_check = next_check or candidate_bi_check(row, next_valid)
                         notes.append({
                             "html": (
                                 f'若尝试用当前分型连接后续反向有效端点 {self._fx_note_ref(next_valid)}：'
-                                f'合并K跨度={span_to_next}，严格模式要求 ≥ 4；'
-                                f'{totally_check_html(row, next_valid)}。最终仍未采用当前分型作为该笔起点。'
+                                f'{next_check["html"]}。'
+                                f'{check_conclusion_html("后续反向承接校验", next_check, "当前分型具备作为下一笔起点连接后续反向端点的静态条件；最终未采用不是这组三项校验导致。")}'
                             )
                         })
                 else:
@@ -1528,10 +1653,10 @@ for bi in begin_next ... window_end:
                             f'未成为笔端点：与前一有效反向分型 {self._fx_note_ref(prev_valid)} '
                             f'做候选成笔检查；合并K跨度={span}，严格模式要求 ≥ 4，'
                             f'结果：{"通过" if span_ok else "不通过"}；'
-                            f'{totally_text}。'
+                            f'{totally_text}；{end_peak_check_result(prev_valid, row)}。'
                         )
                     })
-                    if span_ok and totally_ok and next_valid and next_valid["kind"] == row["kind"]:
+                    if span_ok and totally_ok and end_peak_check_ok(prev_valid, row) and next_valid and next_valid["kind"] == row["kind"]:
                         next_stronger = next_valid["price"] >= row["price"] if row["kind"] == "top" else next_valid["price"] <= row["price"]
                         strength_text = "极值更强" if next_stronger else "最终结构采用"
                         notes.append({
@@ -2101,9 +2226,9 @@ for bi in begin_next ... window_end:
     {"".join(svg)}
     <div id="tooltip-{chart_id}" class="tooltip"></div>
   </div>
-  <div id="seg-note-popover-{chart_id}" class="seg-note-popover" role="dialog" aria-label="线段备注">
+  <div id="seg-note-popover-{chart_id}" class="seg-note-popover" role="dialog" aria-label="图表备注">
     <div id="seg-note-popover-head-{chart_id}" class="seg-note-popover-head">
-      <span id="seg-note-popover-title-{chart_id}" class="seg-note-popover-title">线段备注</span>
+      <span id="seg-note-popover-title-{chart_id}" class="seg-note-popover-title">图表备注</span>
       <button id="seg-note-popover-close-{chart_id}" class="seg-note-popover-close" type="button" aria-label="关闭">×</button>
     </div>
     <div id="seg-note-popover-body-{chart_id}" class="seg-note-popover-body"></div>
@@ -2718,46 +2843,77 @@ function clampSegNotePosition(leftPx, topPx) {{
     top: Math.max(0, Math.min(maxTop, topPx))
   }};
 }}
-function placeSegNoteNearSegment(rowId) {{
+function itemAnchor(kind, rowId) {{
+  if (kind === 'fx') {{
+    var fx = data.fractals.find(function(item) {{ return String(item.row) === String(rowId); }});
+    if (fx) return {{x: fx.x, y: fx.y}};
+  }}
+  if (kind === 'pen') {{
+    var pen = data.pens.find(function(item) {{ return String(item.row) === String(rowId); }});
+    if (pen) return {{x: (pen.x1 + pen.x2) * 0.5, y: (pen.y1 + pen.y2) * 0.5}};
+  }}
   var seg = data.segments.find(function(item) {{ return String(item.row) === String(rowId); }});
+  if (seg) return {{x: (seg.x1 + seg.x2) * 0.5, y: (seg.y1 + seg.y2) * 0.5}};
+  return null;
+}}
+function placeNoteNearItem(kind, rowId) {{
   var leftPx = 16;
   var topPx = 16;
-  if (seg) {{
+  var anchor = itemAnchor(kind, rowId);
+  if (anchor) {{
     var r = rect();
-    var midX = (seg.x1 + seg.x2) * 0.5;
-    var midY = (seg.y1 + seg.y2) * 0.5;
-    leftPx = r.left + (midX - originX) / viewW * r.width + 14;
-    topPx = r.top + (midY - originY) / viewH * r.height + 14;
+    leftPx = r.left + (anchor.x - originX) / viewW * r.width + 14;
+    topPx = r.top + (anchor.y - originY) / viewH * r.height + 14;
   }}
   var pos = clampSegNotePosition(leftPx, topPx);
   segNotePopover.style.left = pos.left + 'px';
   segNotePopover.style.top = pos.top + 'px';
 }}
-function openSegNotePopover(rowId) {{
+function chartNoteMeta(kind, rowId) {{
+  if (kind === 'fx') {{
+    return {{
+      row: panelRoot.querySelector('tr[data-fx-row="' + rowId + '"]'),
+      title: '分型 #' + rowId + ' 备注',
+      type: 'chan-open-chart-note'
+    }};
+  }}
+  if (kind === 'pen') {{
+    return {{
+      row: panelRoot.querySelector('tr[data-pen-row="' + rowId + '"]'),
+      title: '笔 #' + rowId + ' 备注',
+      type: 'chan-open-chart-note'
+    }};
+  }}
+  return {{
+    row: panelRoot.querySelector('tr[data-seg-row="' + rowId + '"]'),
+    title: '线段 #' + rowId + ' 备注',
+    type: 'chan-open-seg-note'
+  }};
+}}
+function openChartNotePopover(kind, rowId) {{
   if (!segNotePopover || !segNotePopoverBody) return;
-  var row = panelRoot.querySelector('tr[data-seg-row="' + rowId + '"]');
-  var noteCell = row && row.querySelector('.note-cell');
+  var meta = chartNoteMeta(kind, rowId);
+  var noteCell = meta.row && meta.row.querySelector('.note-cell');
   if (!noteCell) return;
-  segNotePopoverTitle.textContent = '线段 #' + rowId + ' 备注';
+  segNotePopoverTitle.textContent = meta.title;
   segNotePopoverBody.innerHTML = noteCell.innerHTML;
   bindNoteRefs(segNotePopoverBody);
   if (window.parent && window.parent !== window) {{
     var hostLeft = 16;
     var hostTop = 16;
-    var seg = data.segments.find(function(item) {{ return String(item.row) === String(rowId); }});
-    if (seg) {{
+    var anchor = itemAnchor(kind, rowId);
+    if (anchor) {{
       var r = rect();
       var frameRect = null;
       try {{
         frameRect = window.frameElement ? window.frameElement.getBoundingClientRect() : null;
       }} catch (err) {{}}
-      var midX = (seg.x1 + seg.x2) * 0.5;
-      var midY = (seg.y1 + seg.y2) * 0.5;
-      hostLeft = (frameRect ? frameRect.left : 0) + r.left + (midX - originX) / viewW * r.width + 14;
-      hostTop = (frameRect ? frameRect.top : 0) + r.top + (midY - originY) / viewH * r.height + 14;
+      hostLeft = (frameRect ? frameRect.left : 0) + r.left + (anchor.x - originX) / viewW * r.width + 14;
+      hostTop = (frameRect ? frameRect.top : 0) + r.top + (anchor.y - originY) / viewH * r.height + 14;
     }}
     window.parent.postMessage({{
-      type: 'chan-open-seg-note',
+      type: meta.type,
+      kind: kind,
       rowId: rowId,
       title: segNotePopoverTitle.textContent,
       html: noteCell.innerHTML,
@@ -2768,16 +2924,19 @@ function openSegNotePopover(rowId) {{
     return;
   }}
   segNotePopover.classList.add('active');
-  placeSegNoteNearSegment(rowId);
+  placeNoteNearItem(kind, rowId);
+}}
+function openSegNotePopover(rowId) {{
+  openChartNotePopover('seg', rowId);
 }}
 function closeSegNotePopover() {{
   if (!segNotePopover) return;
   segNotePopover.classList.remove('active');
 }}
 function handleFractalPick(rowId) {{
-  highlightFxRow(rowId);
   markFractalRange(rowId);
   highlightFractalOnChart(rowId);
+  openChartNotePopover('fx', rowId);
 }}
 function handleNoteRefHighlight(data) {{
   data = data || {{}};
@@ -2918,7 +3077,9 @@ panelRoot.querySelectorAll('.chart-pen-line[data-pen-row],.chart-pen-hit[data-pe
   }});
   line.addEventListener('click', function(e) {{
     e.stopPropagation();
-    highlightPenRow(line.getAttribute('data-pen-row'));
+    var rowId = line.getAttribute('data-pen-row');
+    highlightPenRow(rowId, false);
+    openChartNotePopover('pen', rowId);
   }});
 }});
 panelRoot.querySelectorAll('.chart-seg-line[data-seg-row],.chart-seg-hit[data-seg-row]').forEach(function(line) {{

@@ -139,6 +139,13 @@ class CBiList:
         hypothetical_bi.next = last_bi.next
         return hypothetical_bi
 
+    @staticmethod
+    def make_hypothetical_bi(source_bi: CBi, begin_klc: CKLine, end_klc: CKLine) -> CBi:
+        hypothetical_bi = CBi(begin_klc, end_klc, idx=source_bi.idx, is_sure=source_bi.is_sure)
+        hypothetical_bi.pre = source_bi.pre
+        hypothetical_bi.next = source_bi.next
+        return hypothetical_bi
+
     def find_better_same_fx_before_opposite(self, opposite_klc: CKLine) -> Optional[CKLine]:
         replacement = None
         current = self.last_end.next
@@ -150,6 +157,47 @@ class CBiList:
                     previous_bi_override=self.make_hypothetical_last_bi(current),
                 )
                 if can_make:
+                    replacement = current
+            current = current.next
+        return replacement
+
+    def try_replace_last_begin_before_new_end(self, new_end: CKLine) -> bool:
+        if len(self.bi_list) < 2:
+            return False
+        last_bi = self.bi_list[-1]
+        previous_bi = last_bi.pre
+        if previous_bi is None or previous_bi.end_klc.idx != last_bi.begin_klc.idx:
+            return False
+
+        replacement = self.find_better_begin_fx_before_end(new_end)
+        if replacement is None:
+            return False
+
+        hypothetical_previous_bi = self.make_hypothetical_bi(previous_bi, previous_bi.begin_klc, replacement)
+        if not self.can_make_bi(new_end, replacement, previous_bi_override=hypothetical_previous_bi):
+            return False
+
+        previous_bi.update_new_end(replacement)
+        last_bi.set(replacement, new_end)
+        self.last_end = new_end
+        return True
+
+    def find_better_begin_fx_before_end(self, new_end: CKLine) -> Optional[CKLine]:
+        last_bi = self.bi_list[-1]
+        previous_bi = last_bi.pre
+        if previous_bi is None:
+            return None
+
+        replacement = None
+        current = last_bi.begin_klc.next
+        while current is not None and current.idx < new_end.idx:
+            if (
+                current.fx == last_bi.begin_klc.fx
+                and self.is_better_same_fx(current, replacement or last_bi.begin_klc)
+                and self.can_make_bi(current, previous_bi.begin_klc)
+            ):
+                hypothetical_previous_bi = self.make_hypothetical_bi(previous_bi, previous_bi.begin_klc, current)
+                if self.can_make_bi(new_end, current, previous_bi_override=hypothetical_previous_bi):
                     replacement = current
             current = current.next
         return replacement
@@ -269,6 +317,8 @@ class CBiList:
         last_bi = self.bi_list[-1]
         if (last_bi.is_up() and check_top(klc, for_virtual) and klc.high >= last_bi.get_end_val()) or \
            (last_bi.is_down() and check_bottom(klc, for_virtual) and klc.low <= last_bi.get_end_val()):
+            if not for_virtual and self.try_replace_last_begin_before_new_end(klc):
+                return True
             if not self.can_make_bi(klc, last_bi.begin_klc, for_virtual=for_virtual):
                 return False
             gap_break_info = self.get_gap_break_info(klc, last_bi.begin_klc)

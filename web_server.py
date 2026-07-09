@@ -1330,7 +1330,7 @@ frame.addEventListener('load', function() {{
 window.addEventListener('message', function(event) {{
   if (event.origin !== window.location.origin) return;
   var data = event.data || {{}};
-  if (data.type === 'chan-open-seg-note') {{
+  if (data.type === 'chan-open-seg-note' || data.type === 'chan-open-chart-note') {{
     openHostSegNote(data);
     return;
   }}
