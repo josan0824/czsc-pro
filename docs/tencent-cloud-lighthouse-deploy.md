@@ -1872,3 +1872,92 @@ sudo systemctl status nginx
 sudo nginx -t
 sudo tail -n 100 /var/log/nginx/error.log
 ```
+
+---
+
+## 23. 从本地上传 `data` 历史数据到腾讯云轻量服务器
+
+`data/tdx/` 被 Git 忽略，执行 `git pull` 不会把本地通达信历史数据带到服务器。图表服务默认读取服务器上的：
+
+```text
+/opt/czsc-pro/data/tdx/vipdoc/
+```
+
+例如本地 CSV 快照：
+
+```text
+data/tdx/vipdoc/2026-07_1min/20260701_1min/sh688136.csv
+```
+
+上证指数文件名应为 `sh000001.csv`。
+
+### 23.1 在服务器创建数据目录
+
+先 SSH 登录腾讯云服务器，执行：
+
+```bash
+export DEPLOY_USER="${DEPLOY_USER:-$(whoami)}"
+sudo mkdir -p /opt/czsc-pro/data/tdx
+sudo chown -R "$DEPLOY_USER:$DEPLOY_USER" /opt/czsc-pro/data
+```
+
+### 23.2 从本机增量上传
+
+在本机终端设置连接信息。将用户名、公网 IP 和密钥路径替换成自己的实际值：
+
+```bash
+export LIGHTHOUSE_USER="lighthouse"
+export LIGHTHOUSE_HOST="你的腾讯云公网IP"
+export LIGHTHOUSE_KEY="$HOME/.ssh/tencent-lighthouse.pem"
+```
+
+使用 `rsync` 上传。它支持断点续传，重复执行时只传输新增或变更的文件：
+
+```bash
+rsync -avh --partial --progress \
+  --exclude '.DS_Store' \
+  -e "ssh -i $LIGHTHOUSE_KEY" \
+  /Users/josan/Desktop/czsc-pro/data/ \
+  "$LIGHTHOUSE_USER@$LIGHTHOUSE_HOST:/opt/czsc-pro/data/"
+```
+
+源目录 `data/` 末尾的 `/` 必须保留，这样会同步其内容到服务器的 `/opt/czsc-pro/data/`，最终目录为 `/opt/czsc-pro/data/tdx/vipdoc/...`。不要添加 `--delete`，以免删除服务器上已缓存或后来补充的历史数据。
+
+如果本机没有 `rsync`，可用一次性上传命令替代；它不支持断点续传：
+
+```bash
+scp -i "$LIGHTHOUSE_KEY" -r \
+  /Users/josan/Desktop/czsc-pro/data \
+  "$LIGHTHOUSE_USER@$LIGHTHOUSE_HOST:/opt/czsc-pro/"
+```
+
+### 23.3 服务器校验与图表验证
+
+重新 SSH 登录服务器后，检查文件数量和目录结构：
+
+```bash
+find /opt/czsc-pro/data/tdx/vipdoc -type f | wc -l
+find /opt/czsc-pro/data/tdx/vipdoc -type f | head -20
+```
+
+数据文件在每次图表请求时读取，上传后通常无需重启服务；为了同时加载可能更新的代码或环境配置，可以执行：
+
+```bash
+sudo systemctl restart czsc-chart
+sudo systemctl status czsc-chart --no-pager
+```
+
+使用已上传的股票代码验证本地历史数据源。例如上传了 `sz000001.csv`：
+
+```bash
+curl -o /tmp/tdx-history.html \
+  "http://127.0.0.1:8899/chart?code=000001.SZ&lv=1m&days=30&source=tdx_history"
+
+ls -lh /tmp/tdx-history.html
+```
+
+若生成的 HTML 文件不是错误页，说明本地数据已被图表服务识别。出现问题时查看：
+
+```bash
+journalctl -u czsc-chart -n 100 --no-pager
+```
