@@ -141,3 +141,77 @@ def write_day(path: Path, df: pd.DataFrame, security_type: str) -> None:
     finally:
         fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
         lock.close()
+
+
+def _encode_tdx_date(dt) -> int:
+    return (dt.year - 2004) * 2048 + dt.month * 100 + dt.day
+
+
+def _encode_tdx_time(dt) -> int:
+    return dt.hour * 60 + dt.minute
+
+
+def _decode_tdx_date(num: int):
+    month = (num % 2048) // 100
+    year = num // 2048 + 2004
+    day = (num % 2048) % 100
+    return year, month, day
+
+
+def encode_minute(df: pd.DataFrame) -> bytes:
+    out = bytearray()
+    for row in df.itertuples(index=False):
+        dt = row.datetime
+        out += MIN_RECORD.pack(
+            _encode_tdx_date(dt),
+            _encode_tdx_time(dt),
+            float(row.open or 0.0),
+            float(row.high or 0.0),
+            float(row.low or 0.0),
+            float(row.close or 0.0),
+            float(row.amount or 0.0),
+            int(row.volume or 0.0),
+            0,
+        )
+    return bytes(out)
+
+
+def decode_minute(content: bytes) -> pd.DataFrame:
+    if not content:
+        return pd.DataFrame(columns=COLUMNS)
+    records = []
+    for i in range(0, len(content), MIN_RECORD.size):
+        dnum, tnum, o, h, l, c, amount, vol, _ = MIN_RECORD.unpack_from(content, i)
+        year, month, day = _decode_tdx_date(int(dnum))
+        hour, minute = int(tnum) // 60, int(tnum) % 60
+        records.append([
+            pd.Timestamp(year=year, month=month, day=day, hour=hour, minute=minute),
+            o, h, l, c, amount, vol,
+        ])
+    return pd.DataFrame(records, columns=COLUMNS)
+
+
+def read_minute(path: Path) -> pd.DataFrame:
+    if not Path(path).is_file():
+        return pd.DataFrame(columns=COLUMNS)
+    return decode_minute(Path(path).read_bytes())
+
+
+def write_minute(path: Path, df: pd.DataFrame) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    new = normalize_reader_df(df)
+    lock = _file_lock(path)
+    try:
+        old = read_minute(path)
+        if old.empty:
+            merged = new
+        else:
+            merged = pd.concat([old, new], ignore_index=True).drop_duplicates(
+                subset=["datetime"], keep="last"
+            )
+            merged = merged.sort_values("datetime").reset_index(drop=True)
+        _atomic_write(path, encode_minute(merged))
+    finally:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        lock.close()

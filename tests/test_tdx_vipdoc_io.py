@@ -67,5 +67,47 @@ class DayIoTest(unittest.TestCase):
             self.assertAlmostEqual(36.2, decoded.iloc[1]["close"], places=4)
 
 
+class MinuteIoTest(unittest.TestCase):
+    def _min_df(self, rows):
+        return pd.DataFrame(rows, columns=["datetime", "open", "high", "low", "close", "amount", "volume"])
+
+    def test_minute_round_trip_lc1(self):
+        df = self._min_df([
+            [pd.Timestamp("2026-07-01 09:31"), 10.0, 10.5, 9.8, 10.2, 1000.0, 100],
+            [pd.Timestamp("2026-07-01 09:32"), 10.2, 10.6, 10.1, 10.4, 1100.0, 110],
+        ])
+        content = io.encode_minute(df)
+        decoded = io.decode_minute(content)
+        self.assertEqual(list(decoded.columns), ["datetime", "open", "high", "low", "close", "amount", "volume"])
+        self.assertEqual(2, len(decoded))
+        self.assertEqual(pd.Timestamp("2026-07-01 09:31"), decoded.iloc[0]["datetime"])
+        self.assertAlmostEqual(10.2, decoded.iloc[0]["close"], places=4)
+        self.assertEqual(110, int(decoded.iloc[1]["volume"]))
+
+    def test_minute_date_time_encoding_matches_tdxpy(self):
+        # 日期 u16 = (年-2004)*2048 + 月*100 + 日；时间 u16 = 时*60+分
+        df = self._min_df([[pd.Timestamp("2026-07-01 09:31"), 1, 1, 1, 1, 0, 0]])
+        date_u16, time_u16 = struct.unpack("<HH", io.encode_minute(df)[:4])
+        self.assertEqual((2026 - 2004) * 2048 + 7 * 100 + 1, date_u16)
+        self.assertEqual(9 * 60 + 31, time_u16)
+
+    def test_read_minute_missing_returns_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(0, len(io.read_minute(Path(tmp) / "x.lc1")))
+
+    def test_write_minute_appends_and_dedups_keep_new(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "sh000001.lc1"
+            io.write_minute(path, self._min_df([[pd.Timestamp("2026-07-01 09:31"), 10.0, 10.5, 9.8, 10.2, 1000.0, 100]]))
+            io.write_minute(path, self._min_df([
+                [pd.Timestamp("2026-07-01 09:31"), 10.0, 10.5, 9.8, 10.9, 1000.0, 100],  # 修正 close
+                [pd.Timestamp("2026-07-01 09:32"), 10.2, 10.6, 10.1, 10.4, 1100.0, 110],
+            ]))
+            decoded = io.read_minute(path)
+            self.assertEqual(2, len(decoded))
+            self.assertAlmostEqual(10.9, decoded.iloc[0]["close"], places=4)
+            self.assertAlmostEqual(10.4, decoded.iloc[1]["close"], places=4)
+
+
 if __name__ == "__main__":
     unittest.main()
