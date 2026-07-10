@@ -4,6 +4,7 @@ import html
 import json
 import logging
 import multiprocessing
+import os
 import queue
 import re
 import requests
@@ -33,6 +34,7 @@ DEFAULT_CHART_TIMEOUT_SECONDS = 20
 DEFAULT_LV = "1m"
 DEFAULT_SOURCE = "mootdx"
 DEFAULT_SEG_ALGO = "chan_v2"
+TDX_HISTORY_DATA_SOURCE = "custom:TdxCacheAPI.CTdxCache"
 CODE_NAME_MAP = {
     "000001.SH": "上证指数",
     "SH000001": "上证指数",
@@ -151,6 +153,8 @@ def parse_source(value: str):
     source = (value or DEFAULT_SOURCE).strip().lower()
     if source in ("mootdx", "tdx", "tongdaxin", "通达信"):
         return DATA_SRC.MOOTDX
+    if source in ("tdx_history", "tdx-history", "tdxhistory", "通达信历史数据"):
+        return TDX_HISTORY_DATA_SOURCE
     if source in ("eastmoney", "em", "东方财富"):
         return "custom:EastMoneyAPI.CEastMoney"
     raise ValueError(f"不支持的数据源: {value}")
@@ -230,7 +234,14 @@ def make_plot_para() -> dict:
     }
 
 
-def build_single_level_chan(code: str, lv: KL_TYPE, begin_time: str, data_src, seg_algo: str = DEFAULT_SEG_ALGO) -> CChan:
+def build_single_level_chan(
+    code: str,
+    lv: KL_TYPE,
+    begin_time: str,
+    data_src,
+    seg_algo: str = DEFAULT_SEG_ALGO,
+    autype: AUTYPE = AUTYPE.QFQ,
+) -> CChan:
     return CChan(
         code=code,
         begin_time=begin_time,
@@ -238,7 +249,7 @@ def build_single_level_chan(code: str, lv: KL_TYPE, begin_time: str, data_src, s
         data_src=data_src,
         lv_list=[lv],
         config=make_config(seg_algo=seg_algo, seg_lv=lv),
-        autype=AUTYPE.QFQ,
+        autype=autype,
     )
 
 
@@ -279,7 +290,8 @@ def build_chart_html(code: str, lv_key: str, days: int, source: str = DEFAULT_SO
         from DataAPI.MootdxAPI import CMootdx
 
         CMootdx.do_close()
-    chan = build_single_level_chan(normalized_code, lv, begin_time, data_src, seg_algo=seg_algo)
+    autype = AUTYPE.NONE if data_src == TDX_HISTORY_DATA_SOURCE else AUTYPE.QFQ
+    chan = build_single_level_chan(normalized_code, lv, begin_time, data_src, seg_algo=seg_algo, autype=autype)
     html_text = CHtmlPlotDriver(
         chan,
         plot_config=make_plot_config(),
@@ -506,6 +518,7 @@ body {{
   gap:8px;
   flex:1;
   min-width:0;
+  flex-wrap:wrap;
 }}
 input, select, button {{
   height:34px;
@@ -525,13 +538,19 @@ button {{
   padding:0 12px;
   cursor:pointer;
 }}
+.query > input,
+.query > select,
+.query > button {{
+  flex:0 0 auto;
+  white-space:nowrap;
+}}
 button.primary {{
   border-color:var(--accent);
   background:var(--accent);
   color:#fff;
 }}
 button.auto-refresh {{
-  margin-left:38px;
+  margin-left:16px;
   border-color:var(--danger);
   background:#fff;
   color:var(--danger);
@@ -571,9 +590,13 @@ button.quick.active {{
 }}
 .status {{
   margin-left:auto;
+  flex:1 1 160px;
+  min-width:0;
+  overflow:hidden;
   color:var(--muted);
   font-size:12px;
   white-space:nowrap;
+  text-overflow:ellipsis;
 }}
 .frame-wrap {{
   min-height:0;
@@ -844,8 +867,9 @@ iframe {{
   .query {{ flex-wrap:wrap; }}
   button.auto-refresh {{ margin-left:0; }}
   .status {{ margin-left:0; }}
-  .quick-list {{ align-items:flex-start; }}
-  .logic-button {{ margin-left:auto; }}
+  .quick-list {{ align-items:flex-start; flex-wrap:wrap; }}
+  .quick-buttons {{ flex:0 0 100%; }}
+  .logic-button {{ margin-left:0; }}
   iframe {{ height:calc(100vh - 190px); }}
   .logic-grid {{ grid-template-columns:1fr; }}
   .logic-rule-table > div {{ grid-template-columns:1fr; gap:4px; }}
@@ -878,6 +902,7 @@ iframe {{
         </select>
         <select id="source-select" name="source">
           <option value="mootdx" selected>通达信</option>
+          <option value="tdx_history">通达信历史数据</option>
           <option value="eastmoney">东方财富</option>
         </select>
         <select id="seg-algo-select" name="seg_algo" title="切换线段划分算法">
@@ -1508,7 +1533,18 @@ def main():
     parser = argparse.ArgumentParser(description="Run the Chan interactive chart web service.")
     parser.add_argument("--host", default="127.0.0.1", help="bind host, use 0.0.0.0 for external access")
     parser.add_argument("--port", type=int, default=8000, help="bind port")
+    parser.add_argument(
+        "--tdx-history-dir",
+        help="TongDaXin installation directory containing vipdoc; used by source=tdx_history",
+    )
     args = parser.parse_args()
+
+    tdx_dir = args.tdx_history_dir or os.environ.get("TDX_HISTORY_DIR")
+    if not tdx_dir:
+        tdx_dir = str(Path(__file__).resolve().parent / "data" / "tdx")
+    os.environ["TDX_HISTORY_DIR"] = tdx_dir
+    for sub in ("sh/lday", "sh/minline", "sh/fzline", "sz/lday", "sz/minline", "sz/fzline"):
+        (Path(tdx_dir) / "vipdoc" / sub).mkdir(parents=True, exist_ok=True)
 
     server = ThreadingHTTPServer((args.host, args.port), ChanChartHandler)
     print(f"Chan chart server: http://{args.host}:{args.port}/")
