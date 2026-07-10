@@ -364,18 +364,9 @@ class CMootdx(CCommonStockApi):
         project_root = Path(__file__).resolve().parent.parent
         config_dir = project_root / ".mootdx"
         config_dir.mkdir(exist_ok=True)
-        config_path = config_dir / "config.json"
-        if not config_path.exists():
-            config = {
-                "SERVER": {
-                    "HQ": [["默认通达信行情", cls.default_server[0], cls.default_server[1]]],
-                    "EX": [],
-                    "GP": [],
-                },
-                "BESTIP": {"HQ": list(cls.default_server), "EX": "", "GP": ""},
-                "TDXDIR": "C:/new_tdx",
-            }
-            config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+        # 仅把 mootdx 配置沙箱化到项目目录；不预写 SERVER 列表，让 mootdx 在首次连接时
+        # 生成自带完整服务器列表的默认配置——这样 bestip 自动发现才有足够候选去测速，
+        # 而不会被旧的死服务器 BESTIP 困住。
         os.environ["HOME"] = str(project_root)
 
     @classmethod
@@ -395,12 +386,13 @@ class CMootdx(CCommonStockApi):
             from mootdx.quotes import Quotes
         except ImportError as err:
             raise ImportError("缺少 mootdx 依赖，请先执行：/opt/homebrew/bin/python3.11 -m pip install -U mootdx") from err
-        logger.info("[mootdx] connect server=%s:%s timeout=3", server[0], server[1])
+        logger.info("[mootdx] connect server=%s:%s timeout=3 (bestip=True 自动发现)", server[0], server[1])
         started_at = time.monotonic()
+        # bestip=True：让 mootdx 自动测速并选用最快可用服务器（首次约 5s，结果缓存于 .mootdx/config.json）。
+        # 注意：传 server= 会覆盖 bestip 发现结果，故此处不传 server，改由 bestip 决定实际连接的服务器。
         cls.client = Quotes.factory(
             market="std",
-            server=server,
-            bestip=False,
+            bestip=True,
             multithread=True,
             heartbeat=True,
             timeout=3,
