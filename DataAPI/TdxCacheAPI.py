@@ -46,6 +46,7 @@ class CTdxCache(CCommonStockApi):
         self.symbol = None
         self.market = None
         self.security_type = None
+        self._exported_minute_df = None
         super(CTdxCache, self).__init__(code, k_type, begin_date, end_date, autype)
 
     def SetBasciInfo(self):
@@ -83,7 +84,44 @@ class CTdxCache(CCommonStockApi):
         path = self._native_path(native_k_type)
         if native_k_type == KL_TYPE.K_DAY:
             return io.read_day(path, self.security_type)
-        return io.read_minute(path)
+        cached = io.read_minute(path)
+        exported_1m = self._read_exported_1m()
+        if exported_1m.empty:
+            return cached
+
+        if native_k_type == KL_TYPE.K_5M:
+            exported = io.resample_minutes(exported_1m, 5)
+        else:
+            exported = exported_1m
+        if exported.empty:
+            return cached
+
+        # User-supplied historical exports are the authoritative local source;
+        # online bars still take precedence later when an online fill is used.
+        return io.normalize_reader_df(pd.concat([exported, cached], ignore_index=True))
+
+    def _read_exported_1m(self):
+        if self._exported_minute_df is None:
+            self._exported_minute_df = io.read_exported_minute_csv(
+                self.tdx_root / "vipdoc", f"{self.market.lower()}{self.symbol}"
+            )
+            if not self._exported_minute_df.empty:
+                logger.info(
+                    "[tdx_cache] loaded exported 1m csv code=%s rows=%s",
+                    self.code,
+                    len(self._exported_minute_df),
+                )
+        return self._exported_minute_df
+
+    def _exported_archive_overlaps_request(self):
+        archive = self._read_exported_1m()
+        if archive.empty:
+            return False
+        begin = pd.to_datetime(self.begin_date, errors="coerce") if self.begin_date else None
+        if begin is not None and not pd.isna(begin) and archive["datetime"].max() < begin:
+            return False
+        end = self._coverage_ceiling(KL_TYPE.K_1M)
+        return archive["datetime"].min() <= end
 
     def _write_local(self, native_k_type, df):
         path = self._native_path(native_k_type)
@@ -121,6 +159,13 @@ class CTdxCache(CCommonStockApi):
         last_local = native_df["datetime"].max() if not native_df.empty else None
         need_fetch = native_df.empty or (last_local is not None and last_local < ceiling)
 
+        # Exported monthly CSVs are deliberate offline historical snapshots.
+        # Do not block a chart on the online source merely because the snapshot
+        # does not extend through the current clock time.
+        if native_k != KL_TYPE.K_DAY and need_fetch and self._exported_archive_overlaps_request():
+            logger.info("[tdx_cache] use exported 1m archive without online fill code=%s", self.code)
+            need_fetch = False
+
         if not need_fetch:
             merged = native_df
         else:
@@ -142,7 +187,7 @@ class CTdxCache(CCommonStockApi):
                     .reset_index(drop=True)
                 )
             if not online.empty:
-                self._write_local(native_k, merged)
+                self._write_local(native_k, online)
 
         df = self._derive_if_needed(native_k, merged)
         df = self._apply_range(df)
