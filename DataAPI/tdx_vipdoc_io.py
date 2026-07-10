@@ -215,3 +215,33 @@ def write_minute(path: Path, df: pd.DataFrame) -> None:
     finally:
         fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
         lock.close()
+
+
+def resample_minutes(df: pd.DataFrame, target_interval: int) -> pd.DataFrame:
+    """由 1 分钟数据聚合为 N 分钟，午休不跨段。逻辑取自 TdxHistoryAPI.__resample_minutes。"""
+    if df is None or df.empty:
+        return pd.DataFrame(columns=COLUMNS)
+    parts = []
+    sessions = ((9, 30, 11, 30), (13, 0, 15, 0))
+    for trading_day, day_df in df.groupby(df["datetime"].dt.normalize(), sort=True):
+        for start_hour, start_minute, end_hour, end_minute in sessions:
+            session_start = trading_day + pd.Timedelta(hours=start_hour, minutes=start_minute)
+            session_end = trading_day + pd.Timedelta(hours=end_hour, minutes=end_minute)
+            session_df = day_df[(day_df["datetime"] >= session_start) & (day_df["datetime"] <= session_end)].copy()
+            if session_df.empty:
+                continue
+            elapsed_minutes = (session_df["datetime"] - session_start).dt.total_seconds() / 60
+            buckets = ((elapsed_minutes - 1) // target_interval + 1).astype(int).clip(lower=1)
+            session_df["bucket_end"] = session_start + pd.to_timedelta(buckets * target_interval, unit="min")
+            aggregated = session_df.groupby("bucket_end", sort=True).agg(
+                open=("open", "first"),
+                high=("high", "max"),
+                low=("low", "min"),
+                close=("close", "last"),
+                volume=("volume", "sum"),
+                amount=("amount", "sum"),
+            ).reset_index()
+            parts.append(aggregated.rename(columns={"bucket_end": "datetime"}))
+    if not parts:
+        return pd.DataFrame(columns=COLUMNS)
+    return pd.concat(parts, ignore_index=True)[COLUMNS].sort_values("datetime").reset_index(drop=True)

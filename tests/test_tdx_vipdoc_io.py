@@ -109,5 +109,29 @@ class MinuteIoTest(unittest.TestCase):
             self.assertAlmostEqual(10.4, decoded.iloc[1]["close"], places=4)
 
 
+class ResampleTest(unittest.TestCase):
+    def _min_df(self, rows):
+        return pd.DataFrame(rows, columns=["datetime", "open", "high", "low", "close", "amount", "volume"])
+
+    def test_resample_15m_no_lunch_cross(self):
+        df = self._min_df([
+            [pd.Timestamp("2026-07-01 09:31"), 10.0, 10.5, 9.8, 10.2, 100.0, 10],
+            [pd.Timestamp("2026-07-01 09:45"), 10.2, 11.0, 10.0, 10.8, 200.0, 20],
+            [pd.Timestamp("2026-07-01 09:46"), 10.8, 11.2, 10.7, 11.0, 300.0, 30],
+            [pd.Timestamp("2026-07-01 10:00"), 11.0, 11.5, 10.9, 11.4, 400.0, 40],
+            [pd.Timestamp("2026-07-01 11:30"), 11.4, 11.8, 11.3, 11.6, 500.0, 50],
+            [pd.Timestamp("2026-07-01 13:01"), 11.6, 12.0, 11.5, 11.9, 600.0, 60],
+            [pd.Timestamp("2026-07-01 13:15"), 11.9, 12.2, 11.7, 12.1, 700.0, 70],
+        ])
+        out = io.resample_minutes(df, 15)
+        self.assertEqual(
+            ["2026-07-01 09:45", "2026-07-01 10:00", "2026-07-01 11:30", "2026-07-01 13:15"],
+            [t.strftime("%Y-%m-%d %H:%M") for t in out["datetime"]],
+        )
+        self.assertAlmostEqual(10.0, out.iloc[0]["open"], places=4)
+        self.assertAlmostEqual(11.0, out.iloc[0]["high"], places=4)
+        self.assertAlmostEqual(10.8, out.iloc[0]["close"], places=4)
+
+
 if __name__ == "__main__":
     unittest.main()
