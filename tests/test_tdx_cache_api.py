@@ -178,5 +178,54 @@ class TdxCacheOnlineFallbackTest(unittest.TestCase):
         self.assertAlmostEqual(35.2, bars[0].close, places=4)
 
 
+class TdxCacheDayNormalizeTest(unittest.TestCase):
+    """回归：mootdx 返回日线 datetime 为 15:00，必须归一为午夜，否则与 .day 文件
+    （按日期存、读回为 00:00）无法去重，导致同一天出现两根。"""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        (self.root / "vipdoc/sz/lday").mkdir(parents=True)
+        self.env_patch = patch.dict(os.environ, {TDX_HISTORY_DIR_ENV: str(self.root)})
+        self.env_patch.start()
+
+    def tearDown(self):
+        self.env_patch.stop()
+        self.temp_dir.cleanup()
+
+    def test_day_online_normalized_to_midnight(self):
+        # 模拟 CMootdx 返回一根 15:00 的日线
+        online_unit = _FakeKLU(CTime(2026, 7, 1, 15, 0), 10.5)
+        inst = type("M", (), {})()
+        inst.get_kl_data = lambda *a, **k: iter([online_unit])
+        inst.do_init = lambda *a, **k: None
+        inst.do_close = lambda *a, **k: None
+        with patch("DataAPI.TdxCacheAPI.CMootdx", return_value=inst):
+            bars = list(CTdxCache("000001.SZ", KL_TYPE.K_DAY, "2026-07-01", "2026-07-01").get_kl_data())
+        self.assertEqual(1, len(bars))
+        self.assertEqual("2026/07/01", bars[0].time.to_str())  # 午夜，非 15:00
+        # 写回的文件也是一根、午夜
+        decoded = io.read_day(self.root / "vipdoc/sz/lday/sz000001.day", "SZ_A_STOCK")
+        self.assertEqual(1, len(decoded))
+        self.assertEqual(pd.Timestamp("2026-07-01"), decoded.iloc[0]["datetime"])
+
+    def test_day_re_fetch_dedups_same_day(self):
+        # 先写入一根
+        io.write_day(
+            self.root / "vipdoc/sz/lday/sz000001.day",
+            _min_df([[pd.Timestamp("2026-07-01"), 10.0, 10.5, 9.8, 10.2, 100.0, 1000.0]]),
+            "SZ_A_STOCK",
+        )
+        online_unit = _FakeKLU(CTime(2026, 7, 1, 15, 0), 10.9)  # 同日、15:00、close 修正
+        inst = type("M", (), {})()
+        inst.get_kl_data = lambda *a, **k: iter([online_unit])
+        inst.do_init = lambda *a, **k: None
+        inst.do_close = lambda *a, **k: None
+        with patch("DataAPI.TdxCacheAPI.CMootdx", return_value=inst):
+            bars = list(CTdxCache("000001.SZ", KL_TYPE.K_DAY, "2026-07-01", "2026-07-02").get_kl_data())
+        self.assertEqual(1, len(bars))  # 同日去重，不出现两根
+        self.assertAlmostEqual(10.9, bars[0].close, places=4)  # 新值胜出
+
+
 if __name__ == "__main__":
     unittest.main()

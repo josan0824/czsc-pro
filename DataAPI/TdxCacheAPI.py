@@ -161,8 +161,11 @@ class CTdxCache(CCommonStockApi):
             rows = []
             for klu in client.get_kl_data():
                 t = klu.time
+                dt = pd.Timestamp(year=t.year, month=t.month, day=t.day, hour=t.hour, minute=t.minute)
+                if native_k == KL_TYPE.K_DAY:
+                    dt = dt.normalize()  # 日线统一存为午夜，与 .day 文件（按日期）及 CTdxHistory 一致
                 rows.append({
-                    "datetime": pd.Timestamp(year=t.year, month=t.month, day=t.day, hour=t.hour, minute=t.minute),
+                    "datetime": dt,
                     "open": float(klu.open),
                     "high": float(klu.high),
                     "low": float(klu.low),
