@@ -18,6 +18,28 @@ def _min_df(rows):
     return pd.DataFrame(rows, columns=["datetime", "open", "high", "low", "close", "amount", "volume"])
 
 
+def _write_exported_1min_csv(root: Path, code: str, rows: list[list]):
+    first_time = pd.Timestamp(rows[0][0])
+    path = (
+        root
+        / "vipdoc"
+        / f"{first_time:%Y-%m}_1min"
+        / f"{first_time:%Y%m%d}_1min"
+        / f"{code.lower()}.csv"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame = pd.DataFrame(
+        [
+            [dt, code.lower(), "测试证券", open_price, close_price, high_price, low_price, volume, amount, 0, 0]
+            for dt, open_price, high_price, low_price, close_price, amount, volume in rows
+        ],
+        columns=[
+            "datetime", "code", "name", "open", "close", "high", "low", "volume", "amount", "pct_chg", "amplitude",
+        ],
+    )
+    frame.to_csv(path, index=False, encoding="utf-8-sig")
+
+
 class TdxCacheLocalFirstTest(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -145,6 +167,62 @@ class TdxCacheDerivedTest(unittest.TestCase):
         self.assertEqual(["2026/07/01 09:45", "2026/07/01 10:00"], [b.time.to_str() for b in bars])
         self.assertAlmostEqual(10.0, bars[0].open, places=4)
         self.assertAlmostEqual(10.8, bars[0].close, places=4)
+
+
+class TdxCacheExportedMinuteTest(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        self.env_patch = patch.dict(os.environ, {TDX_HISTORY_DIR_ENV: str(self.root)})
+        self.env_patch.start()
+
+    def tearDown(self):
+        self.env_patch.stop()
+        self.temp_dir.cleanup()
+
+    def test_reads_bom_csv_and_prefers_it_to_lc1_cache(self):
+        _write_exported_1min_csv(
+            self.root,
+            "sh688136",
+            [
+                ["2026-07-01 09:30", 20.8, 20.8, 20.8, 20.8, 2_132_000, 1025],
+                ["2026-07-01 09:31", 21.0, 21.0, 20.5, 20.53, 3_291_027, 1588],
+            ],
+        )
+        io.write_minute(
+            self.root / "vipdoc/sh/minline/sh688136.lc1",
+            _min_df([[pd.Timestamp("2026-07-01 09:31"), 1.0, 1.0, 1.0, 1.0, 0.0, 1]]),
+        )
+
+        with patch("DataAPI.TdxCacheAPI.CMootdx") as mootdx_cls:
+            bars = list(
+                CTdxCache("688136.SH", KL_TYPE.K_1M, "2026-06-01", None).get_kl_data()
+            )
+
+        self.assertFalse(mootdx_cls.called)
+        self.assertEqual(["2026/07/01 09:30", "2026/07/01 09:31"], [bar.time.to_str() for bar in bars])
+        self.assertAlmostEqual(20.53, bars[-1].close, places=4)
+
+    def test_resamples_exported_1m_csv_for_5m_request(self):
+        _write_exported_1min_csv(
+            self.root,
+            "sh688136",
+            [
+                ["2026-07-01 09:30", 20.0, 20.2, 19.9, 20.1, 100.0, 10],
+                ["2026-07-01 09:34", 20.1, 20.5, 20.0, 20.4, 200.0, 20],
+                ["2026-07-01 09:35", 20.4, 20.8, 20.3, 20.7, 300.0, 30],
+            ],
+        )
+
+        with patch("DataAPI.TdxCacheAPI.CMootdx") as mootdx_cls:
+            bars = list(
+                CTdxCache("688136.SH", KL_TYPE.K_5M, "2026-07-01", "2026-07-01 09:35").get_kl_data()
+            )
+
+        self.assertFalse(mootdx_cls.called)
+        self.assertEqual(["2026/07/01 09:35"], [bar.time.to_str() for bar in bars])
+        self.assertAlmostEqual(20.0, bars[0].open, places=4)
+        self.assertAlmostEqual(20.7, bars[0].close, places=4)
 
 
 class TdxCacheOnlineFallbackTest(unittest.TestCase):

@@ -7,10 +7,14 @@
 本模块读写自洽：encode/decode 互逆；写出的文件也能被 mootdx/tdxpy Reader 正常读取。
 """
 import fcntl
+import logging
 import struct
 from pathlib import Path
 
 import pandas as pd
+
+
+logger = logging.getLogger(__name__)
 
 DAY_RECORD = struct.Struct("<IIIIIfII")
 MIN_RECORD = struct.Struct("<HHfffffII")
@@ -195,6 +199,40 @@ def read_minute(path: Path) -> pd.DataFrame:
     if not Path(path).is_file():
         return pd.DataFrame(columns=COLUMNS)
     return decode_minute(Path(path).read_bytes())
+
+
+def read_exported_minute_csv(vipdoc_dir: Path, symbol: str) -> pd.DataFrame:
+    """Read one symbol from exported ``YYYY-MM_1min/YYYYMMDD_1min`` CSV files.
+
+    The exported files are not standard TongDaXin ``.lc1`` files.  They use
+    UTF-8 with a BOM and keep one trading day per CSV, for example::
+
+        vipdoc/2026-07_1min/20260701_1min/sh688136.csv
+
+    The glob includes the requested symbol in its filename, so a lookup does
+    not load the rest of the monthly archive.
+    """
+    vipdoc_dir = Path(vipdoc_dir)
+    file_name = f"{str(symbol).lower()}.csv"
+    columns = ["datetime", "open", "high", "low", "close", "volume", "amount"]
+    parts = []
+    pattern = f"????-??_1min/????????_1min/{file_name}"
+    for path in sorted(vipdoc_dir.glob(pattern)):
+        try:
+            raw = pd.read_csv(path, encoding="utf-8-sig", usecols=columns)
+        except (OSError, UnicodeDecodeError, ValueError, pd.errors.EmptyDataError, pd.errors.ParserError) as err:
+            logger.warning("[tdx_cache] skip invalid exported 1m csv path=%s error=%s", path, err)
+            continue
+        normalized = normalize_reader_df(raw)
+        if not normalized.empty:
+            parts.append(normalized)
+
+    if not parts:
+        return pd.DataFrame(columns=COLUMNS)
+    # A later daily export is treated as the correction when timestamps overlap.
+    return pd.concat(parts, ignore_index=True).drop_duplicates(
+        subset=["datetime"], keep="last"
+    ).sort_values("datetime").reset_index(drop=True)
 
 
 def write_minute(path: Path, df: pd.DataFrame) -> None:
