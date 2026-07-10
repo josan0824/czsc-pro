@@ -147,5 +147,36 @@ class TdxCacheDerivedTest(unittest.TestCase):
         self.assertAlmostEqual(10.8, bars[0].close, places=4)
 
 
+class TdxCacheOnlineFallbackTest(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        (self.root / "vipdoc/sh/lday").mkdir(parents=True)
+        self.env_patch = patch.dict(os.environ, {TDX_HISTORY_DIR_ENV: str(self.root)})
+        self.env_patch.start()
+
+    def tearDown(self):
+        self.env_patch.stop()
+        self.temp_dir.cleanup()
+
+    def test_online_fails_uses_local(self):
+        io.write_day(
+            self.root / "vipdoc/sh/lday/sh000001.day",
+            _min_df([[pd.Timestamp("2026-07-01"), 35.0, 35.5, 34.5, 35.2, 100.0, 1000.0]]),
+            "SH_INDEX",
+        )
+        def _raise(*a, **k):
+            raise RuntimeError("net down")
+        broken = type("M", (), {
+            "get_kl_data": staticmethod(_raise),
+            "do_init": staticmethod(lambda *a, **k: None),
+            "do_close": staticmethod(lambda *a, **k: None),
+        })()
+        with patch("DataAPI.TdxCacheAPI.CMootdx", return_value=broken):
+            bars = list(CTdxCache("SH000001", KL_TYPE.K_DAY, "2026-07-01", "2026-07-08").get_kl_data())
+        self.assertEqual(1, len(bars))
+        self.assertAlmostEqual(35.2, bars[0].close, places=4)
+
+
 if __name__ == "__main__":
     unittest.main()

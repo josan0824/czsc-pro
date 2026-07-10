@@ -124,7 +124,11 @@ class CTdxCache(CCommonStockApi):
         if not need_fetch:
             merged = native_df
         else:
-            online = self._fetch_online(native_k, last_local)
+            try:
+                online = self._fetch_online(native_k, last_local)
+            except Exception as err:
+                logger.warning("[tdx_cache] 联网失败 code=%s err=%s，回退本地数据", self.code, err)
+                online = pd.DataFrame(columns=io.COLUMNS)
             if online.empty and native_df.empty:
                 raise RuntimeError(f"通达信缓存数据源未返回 {self.code} {self.k_type.name} 数据（本地与联网均空）")
             # 合并：同时间戳保留联网新值（online 在后，keep="last"）
