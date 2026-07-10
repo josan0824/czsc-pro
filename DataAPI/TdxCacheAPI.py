@@ -95,7 +95,13 @@ class CTdxCache(CCommonStockApi):
         except Exception as err:
             logger.warning("[tdx_cache] 写回失败 path=%s err=%s（不影响本次出图）", path, err)
 
-    def _coverage_ceiling(self):
+    def _coverage_ceiling(self, native_k):
+        """本地需覆盖到的最晚时刻。日级按日期比较（日线存为午夜），分钟级按时间戳比较。"""
+        if native_k == KL_TYPE.K_DAY:
+            if self.end_date:
+                end = pd.to_datetime(self.end_date, errors="coerce")
+                return pd.Timestamp.now().normalize() if pd.isna(end) else end.normalize()
+            return pd.Timestamp.now().normalize()
         if self.end_date:
             end = pd.to_datetime(self.end_date, errors="coerce")
             if pd.isna(end):
@@ -111,7 +117,7 @@ class CTdxCache(CCommonStockApi):
 
         native_k = self._native_k_type()
         native_df = self._read_local(native_k)
-        ceiling = self._coverage_ceiling()
+        ceiling = self._coverage_ceiling(native_k)
         last_local = native_df["datetime"].max() if not native_df.empty else None
         need_fetch = native_df.empty or (last_local is not None and last_local < ceiling)
 
@@ -121,10 +127,16 @@ class CTdxCache(CCommonStockApi):
             online = self._fetch_online(native_k, last_local)
             if online.empty and native_df.empty:
                 raise RuntimeError(f"通达信缓存数据源未返回 {self.code} {self.k_type.name} 数据（本地与联网均空）")
-            merged = (
-                io.normalize_reader_df(pd.concat([native_df, online], ignore_index=True))
-                if not native_df.empty else online
-            )
+            # 合并：同时间戳保留联网新值（online 在后，keep="last"）
+            if native_df.empty:
+                merged = online
+            else:
+                merged = (
+                    pd.concat([native_df, online], ignore_index=True)
+                    .drop_duplicates(subset=["datetime"], keep="last")
+                    .sort_values("datetime")
+                    .reset_index(drop=True)
+                )
             if not online.empty:
                 self._write_local(native_k, merged)
 
@@ -134,8 +146,32 @@ class CTdxCache(CCommonStockApi):
             yield _to_klu(row)
 
     def _fetch_online(self, native_k, last_local):
-        # Task 5 实现。本任务因覆盖即跳过，不会进入此分支。
-        return pd.DataFrame(columns=io.COLUMNS)
+        fetch_begin = last_local if last_local is not None else self.begin_date
+        try:
+            client = CMootdx(self.code, native_k, begin_date=fetch_begin, end_date=self.end_date, autype=AUTYPE.NONE)
+        except Exception as err:
+            logger.warning("[tdx_cache] 联网初始化失败 code=%s err=%s", self.code, err)
+            return pd.DataFrame(columns=io.COLUMNS)
+        try:
+            client.do_init()
+            rows = []
+            for klu in client.get_kl_data():
+                t = klu.time
+                rows.append({
+                    "datetime": pd.Timestamp(year=t.year, month=t.month, day=t.day, hour=t.hour, minute=t.minute),
+                    "open": float(klu.open),
+                    "high": float(klu.high),
+                    "low": float(klu.low),
+                    "close": float(klu.close),
+                    "amount": float(klu.trade_info.metric.get(DATA_FIELD.FIELD_TURNOVER) or 0.0),
+                    "volume": float(klu.trade_info.metric.get(DATA_FIELD.FIELD_VOLUME) or 0.0),
+                })
+            return io.normalize_reader_df(pd.DataFrame(rows, columns=io.COLUMNS))
+        finally:
+            try:
+                client.do_close()
+            except Exception:
+                pass
 
     def _derive_if_needed(self, native_k, merged):
         if self.k_type == native_k:
