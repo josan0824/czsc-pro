@@ -1901,34 +1901,49 @@ sudo mkdir -p /opt/czsc-pro/data/tdx
 sudo chown -R "$DEPLOY_USER:$DEPLOY_USER" /opt/czsc-pro/data
 ```
 
-### 23.2 从本机增量上传
+### 23.2 解压已上传的数据包
 
-在本机终端设置连接信息。将用户名、公网 IP 和密钥路径替换成自己的实际值：
+如果已经通过页面上传到服务器，例如文件路径为：
 
-```bash
-export LIGHTHOUSE_USER="lighthouse"
-export LIGHTHOUSE_HOST="你的腾讯云公网IP"
-export LIGHTHOUSE_KEY="$HOME/.ssh/tencent-lighthouse.pem"
+```text
+/home/ubuntu/2026-06_1min.zip
 ```
 
-使用 `rsync` 上传。它支持断点续传，重复执行时只传输新增或变更的文件：
+先在服务器上创建目标目录：
 
 ```bash
-rsync -avh --partial --progress \
-  --exclude '.DS_Store' \
-  -e "ssh -i $LIGHTHOUSE_KEY" \
-  /Users/josan/Desktop/czsc-pro/data/ \
-  "$LIGHTHOUSE_USER@$LIGHTHOUSE_HOST:/opt/czsc-pro/data/"
+sudo mkdir -p /opt/czsc-pro/data/tdx/vipdoc
 ```
 
-源目录 `data/` 末尾的 `/` 必须保留，这样会同步其内容到服务器的 `/opt/czsc-pro/data/`，最终目录为 `/opt/czsc-pro/data/tdx/vipdoc/...`。不要添加 `--delete`，以免删除服务器上已缓存或后来补充的历史数据。
-
-如果本机没有 `rsync`，可用一次性上传命令替代；它不支持断点续传：
+解压到通达信 `vipdoc` 数据目录：
 
 ```bash
-scp -i "$LIGHTHOUSE_KEY" -r \
-  /Users/josan/Desktop/czsc-pro/data \
-  "$LIGHTHOUSE_USER@$LIGHTHOUSE_HOST:/opt/czsc-pro/"
+sudo unzip /home/ubuntu/2026-06_1min.zip -d /opt/czsc-pro/data/tdx/vipdoc
+```
+
+如果提示没有 `unzip`，先安装：
+
+```bash
+sudo apt update
+sudo apt install -y unzip
+```
+
+解压后检查目录：
+
+```bash
+ls -lh /opt/czsc-pro/data/tdx/vipdoc
+```
+
+如果压缩包里已经带了 `vipdoc/` 或其他上层目录，先查看压缩包结构：
+
+```bash
+unzip -l /home/ubuntu/2026-06_1min.zip | head -50
+```
+
+如果需要覆盖已有文件，用：
+
+```bash
+sudo unzip -o /home/ubuntu/2026-06_1min.zip -d /opt/czsc-pro/data/tdx/vipdoc
 ```
 
 ### 23.3 服务器校验与图表验证
