@@ -1961,3 +1961,5 @@ ls -lh /tmp/tdx-history.html
 ```bash
 journalctl -u czsc-chart -n 100 --no-pager
 ```
+## 复制路径
+unzip -o /home/ubuntu/2026-04_1min.zip -d /opt/czsc-pro/data/tdx/vipdoc
