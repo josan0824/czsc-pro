@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from Chan import CChan
 from ChanConfig import CChanConfig
 from Common.CEnum import AUTYPE, DATA_SRC, KL_TYPE
+from Common.ChanException import CChanException, ErrCode
 from Plot.HtmlPlotDriver import CHtmlPlotDriver
 
 
@@ -34,7 +35,7 @@ DEFAULT_CODE = "SH000001"
 DEFAULT_DAYS = 30
 DEFAULT_CHART_TIMEOUT_SECONDS = 20
 DEFAULT_LV = "1m"
-DEFAULT_SOURCE = "mootdx"
+DEFAULT_SOURCE = "tdx_history"
 DEFAULT_SEG_ALGO = "chan_v2"
 TDX_HISTORY_DATA_SOURCE = "custom:TdxCacheAPI.CTdxCache"
 CODE_NAME_MAP = {
@@ -390,10 +391,70 @@ def build_chart_payload(code: str, lv_key: str, days: int, source: str = DEFAULT
     return attach_chart_signature(html_text, signature), signature
 
 
+def is_no_data_error(err) -> bool:
+    if isinstance(err, CChanException) and err.errcode == ErrCode.NO_DATA:
+        return True
+    message = str(err)
+    return any(
+        marker in message
+        for marker in (
+            "最高级别没有获得任何数据",
+            "没有传入数据",
+            "未返回",
+            "请求区间没有",
+            "no data",
+            "No data",
+        )
+    )
+
+
+def no_data_html(message: str, code: str, lv_key: str, days: int, source: str, seg_algo: str) -> str:
+    normalized_code = normalize_code(code)
+    lv = parse_lv(lv_key)
+    chart_title = make_chart_title(normalized_code)
+    day_text = "全部可用数据" if days <= 0 else f"最近 {days} 天"
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{html.escape(chart_title)} 暂无数据</title>
+<style>
+body {{
+  margin:0;
+  background:#f6f7f9;
+  color:#101828;
+  font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}}
+main {{ max-width:880px; margin:48px auto; padding:0 18px; }}
+.panel {{ background:#fff; border:1px solid #d0d5dd; border-radius:6px; padding:18px; }}
+h1 {{ margin:0 0 8px; font-size:20px; }}
+p {{ margin:8px 0; }}
+.meta {{ color:#667085; }}
+</style>
+</head>
+<body>
+<main>
+  <div class="panel">
+    <h1>暂无可用K线数据</h1>
+    <p>{html.escape(chart_title)} 在当前请求范围内没有可用于生成图表的 {html.escape(lv_key)} 数据。</p>
+    <p class="meta">范围：{html.escape(day_text)}；数据源：{html.escape(source)}；线段算法：{html.escape(seg_algo)}</p>
+    <p class="meta">{html.escape(message)}</p>
+  </div>
+</main>
+</body>
+</html>"""
+
+
 def _chart_payload_worker(result_queue, code: str, lv_key: str, days: int, source: str, seg_algo: str):
     try:
         result_queue.put(("ok", build_chart_payload(code, lv_key, days, source, seg_algo)))
     except Exception as err:
+        if is_no_data_error(err):
+            html_text = no_data_html(str(err), code, lv_key, days, source, seg_algo)
+            signature = sign_chart_html(html_text)
+            result_queue.put(("ok", (attach_chart_signature(html_text, signature), signature)))
+            return
         result_queue.put(("error", str(err), traceback.format_exc()))
 
 
@@ -903,8 +964,8 @@ iframe {{
           <option value="250">250天</option>
         </select>
         <select id="source-select" name="source">
-          <option value="mootdx" selected>通达信</option>
-          <option value="tdx_history">通达信历史数据</option>
+          <option value="mootdx">通达信</option>
+          <option value="tdx_history" selected>通达信历史数据</option>
           <option value="eastmoney">东方财富</option>
         </select>
         <select id="seg-algo-select" name="seg_algo" title="切换线段划分算法">

@@ -206,6 +206,8 @@ class CChan:
             self.klu_last_t = [CTime(1980, 1, 1, 0, 0) for _ in self.lv_list]
 
             yield from self.load_iterator(lv_idx=0, parent_klu=None, step=step)  # 计算入口
+            if len(self[0]) == 0:
+                raise CChanException("最高级别没有获得任何数据", ErrCode.NO_DATA)
             if not step:  # 非回放模式全部算完之后才算一次中枢和线段
                 for lv in self.lv_list:
                     self.kl_datas[lv].cal_seg_and_zs()
@@ -213,8 +215,6 @@ class CChan:
             raise
         finally:
             stockapi_cls.do_close()
-        if len(self[0]) == 0:
-            raise CChanException("最高级别没有获得任何数据", ErrCode.NO_DATA)
 
     def set_klu_parent_relation(self, parent_klu, kline_unit, cur_lv, lv_idx):
         if self.conf.kl_data_check and kltype_lte_day(cur_lv) and kltype_lte_day(self.lv_list[lv_idx-1]):

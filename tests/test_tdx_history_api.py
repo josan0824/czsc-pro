@@ -121,6 +121,7 @@ class TdxHistoryApiTest(unittest.TestCase):
                 resolve_tdx_history_root()
 
     def test_web_source_maps_to_tdx_cache(self):
+        self.assertEqual(parse_source(""), "custom:TdxCacheAPI.CTdxCache")
         self.assertEqual(parse_source("tdx_history"), "custom:TdxCacheAPI.CTdxCache")
         self.assertEqual(parse_source("通达信历史数据"), "custom:TdxCacheAPI.CTdxCache")
 
