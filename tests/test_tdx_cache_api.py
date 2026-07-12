@@ -40,6 +40,26 @@ def _write_exported_1min_csv(root: Path, code: str, rows: list[list]):
     frame.to_csv(path, index=False, encoding="utf-8-sig")
 
 
+def _write_exported_1min_cn_csv(root: Path, code: str, rows: list[list]):
+    first_time = pd.Timestamp(rows[0][0])
+    path = (
+        root
+        / "vipdoc"
+        / f"{first_time:%Y-%m}_1min"
+        / f"{first_time:%Y%m%d}_1min"
+        / f"{code.lower()}.csv"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame = pd.DataFrame(
+        [
+            [dt, code.lower(), "测试证券", open_price, close_price, high_price, low_price, amount, 0, 0]
+            for dt, open_price, high_price, low_price, close_price, amount in rows
+        ],
+        columns=["时间", "代码", "名称", "开盘价", "收盘价", "最高价", "最低价", "成交额", "涨幅", "振幅"],
+    )
+    frame.to_csv(path, index=False, encoding="utf-8-sig")
+
+
 class TdxCacheLocalFirstTest(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -202,6 +222,44 @@ class TdxCacheExportedMinuteTest(unittest.TestCase):
         self.assertFalse(mootdx_cls.called)
         self.assertEqual(["2026/07/01 09:30", "2026/07/01 09:31"], [bar.time.to_str() for bar in bars])
         self.assertAlmostEqual(20.53, bars[-1].close, places=4)
+
+    def test_reads_unprefixed_exported_index_csv(self):
+        _write_exported_1min_csv(
+            self.root,
+            "000001",
+            [
+                ["2026-06-01 09:30", 3000.0, 3001.0, 2999.0, 3000.5, 100.0, 10],
+                ["2026-06-01 09:31", 3000.5, 3002.0, 3000.0, 3001.8, 200.0, 20],
+            ],
+        )
+
+        with patch("DataAPI.TdxCacheAPI.CMootdx") as mootdx_cls:
+            bars = list(
+                CTdxCache("SH000001", KL_TYPE.K_1M, "2026-06-01", "2026-06-01 09:31").get_kl_data()
+            )
+
+        self.assertFalse(mootdx_cls.called)
+        self.assertEqual(["2026/06/01 09:30", "2026/06/01 09:31"], [bar.time.to_str() for bar in bars])
+        self.assertAlmostEqual(3001.8, bars[-1].close, places=4)
+
+    def test_reads_chinese_header_unprefixed_exported_index_csv(self):
+        _write_exported_1min_cn_csv(
+            self.root,
+            "000001",
+            [
+                ["2026-06-01 09:30", 4067.16, 4067.16, 4067.16, 4067.16, 13_177_656_200],
+                ["2026-06-01 09:31", 4067.16, 4070.15, 4064.27, 4064.27, 29_849_451_640],
+            ],
+        )
+
+        with patch("DataAPI.TdxCacheAPI.CMootdx") as mootdx_cls:
+            bars = list(
+                CTdxCache("SH000001", KL_TYPE.K_1M, "2026-06-01", "2026-06-01 09:31").get_kl_data()
+            )
+
+        self.assertFalse(mootdx_cls.called)
+        self.assertEqual(["2026/06/01 09:30", "2026/06/01 09:31"], [bar.time.to_str() for bar in bars])
+        self.assertAlmostEqual(4064.27, bars[-1].close, places=4)
 
     def test_resamples_exported_1m_csv_for_5m_request(self):
         _write_exported_1min_csv(

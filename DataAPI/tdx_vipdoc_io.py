@@ -213,19 +213,40 @@ def read_exported_minute_csv(vipdoc_dir: Path, symbol: str) -> pd.DataFrame:
     not load the rest of the monthly archive.
     """
     vipdoc_dir = Path(vipdoc_dir)
-    file_name = f"{str(symbol).lower()}.csv"
-    columns = ["datetime", "open", "high", "low", "close", "volume", "amount"]
+    normalized_symbol = str(symbol).lower()
+    code_only = normalized_symbol[2:] if len(normalized_symbol) == 8 and normalized_symbol[:2] in ("sh", "sz") else None
+    file_names = [f"{normalized_symbol}.csv"]
+    if code_only:
+        # Some exported archives name index files as 000001.csv instead of sh000001.csv.
+        # Read the generic file first so a market-prefixed file wins on duplicate timestamps.
+        file_names.insert(0, f"{code_only}.csv")
+    rename_columns = {
+        "时间": "datetime",
+        "日期": "datetime",
+        "开盘价": "open",
+        "开盘": "open",
+        "最高价": "high",
+        "最高": "high",
+        "最低价": "low",
+        "最低": "low",
+        "收盘价": "close",
+        "收盘": "close",
+        "成交量": "volume",
+        "成交额": "amount",
+    }
     parts = []
-    pattern = f"????-??_1min/????????_1min/{file_name}"
-    for path in sorted(vipdoc_dir.glob(pattern)):
-        try:
-            raw = pd.read_csv(path, encoding="utf-8-sig", usecols=columns)
-        except (OSError, UnicodeDecodeError, ValueError, pd.errors.EmptyDataError, pd.errors.ParserError) as err:
-            logger.warning("[tdx_cache] skip invalid exported 1m csv path=%s error=%s", path, err)
-            continue
-        normalized = normalize_reader_df(raw)
-        if not normalized.empty:
-            parts.append(normalized)
+    for file_name in file_names:
+        pattern = f"????-??_1min/????????_1min/{file_name}"
+        for path in sorted(vipdoc_dir.glob(pattern)):
+            try:
+                raw = pd.read_csv(path, encoding="utf-8-sig")
+            except (OSError, UnicodeDecodeError, ValueError, pd.errors.EmptyDataError, pd.errors.ParserError) as err:
+                logger.warning("[tdx_cache] skip invalid exported 1m csv path=%s error=%s", path, err)
+                continue
+            raw = raw.rename(columns=rename_columns)
+            normalized = normalize_reader_df(raw)
+            if not normalized.empty:
+                parts.append(normalized)
 
     if not parts:
         return pd.DataFrame(columns=COLUMNS)
