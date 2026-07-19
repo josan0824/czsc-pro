@@ -1295,6 +1295,8 @@ for bi in begin_next ... window_end:
             )
             if v2_mode:
                 notes.append(v2_mode["desc"])
+            if getattr(seg, "is_zs_scene", False):
+                notes.append("笔中枢场景命中段：区间内同向更极端笔端点作为候选端点替代。")
             extra_notes = list(getattr(seg, "extra_notes", []))
             if extra_notes:
                 notes.extend(extra_notes)
