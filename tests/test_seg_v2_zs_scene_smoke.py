@@ -9,6 +9,9 @@ from Common.CEnum import AUTYPE, DATA_SRC, KL_TYPE
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CSV_PATH = REPO_ROOT / "TESTSEG_day.csv"
+TDX_ROOT = REPO_ROOT / "data" / "tdx"
+TDX_SAMPLE_CODE = "688136.SH"
+TDX_SAMPLE_MONTH = "2026-05_1min"
 
 
 def _write_synthetic_csv(path: Path):
@@ -89,6 +92,57 @@ class TestSegV2ZSSceneSmoke(unittest.TestCase):
         # 至少存在线段对象且 is_zs_scene 属性可读（True/False）
         for seg in seg_list:
             self.assertIn(seg.is_zs_scene, (True, False))
+
+
+@unittest.skipUnless(
+    os.environ.get("TDX_HISTORY_DIR") or (TDX_ROOT / "vipdoc" / TDX_SAMPLE_MONTH).exists(),
+    "需要本地通达信 vipdoc 1min 数据（设置 TDX_HISTORY_DIR 或存在 data/tdx/vipdoc/<月>_1min）",
+)
+class TestSegV2ZSSceneRealDataRegression(unittest.TestCase):
+    """在真实 tdx 1min 数据上对照 chan_v2_zs_scene 开/关：
+    1. 两种开关均不崩溃、线段数一致；
+    2. 除 is_zs_scene 标记外，所有线段起止/确认状态一致（无回归）；
+    3. 开关开启时至少存在一条命中段或命中说明（若该样本结构满足场景）。"""
+
+    def _run(self, zs_scene: bool):
+        env_root = os.environ.get("TDX_HISTORY_DIR") or str(TDX_ROOT)
+        os.environ["TDX_HISTORY_DIR"] = env_root
+        config = CChanConfig({
+            "seg_algo": "chan_v2",
+            "chan_v2_zs_scene": zs_scene,
+            "bi_strict": True,
+            "bi_fx_check": "strict",
+            "zs_combine": False,
+            "kl_data_check": False,
+        })
+        chan = CChan(
+            code=TDX_SAMPLE_CODE,
+            data_src="custom:TdxCacheAPI.CTdxCache",
+            lv_list=[KL_TYPE.K_1M],
+            config=config,
+            autype=AUTYPE.NONE,
+            begin_time="2026-05-01",
+            end_time="2026-05-31",
+        )
+        return chan
+
+    @staticmethod
+    def _seg_fingerprint(seg):
+        return (seg.start_bi.idx, seg.end_bi.idx, seg.is_sure)
+
+    def test_no_regression_and_scene_fires(self):
+        chan_on = self._run(zs_scene=True)
+        chan_off = self._run(zs_scene=False)
+        seg_on = list(chan_on.kl_datas[KL_TYPE.K_1M].seg_list)
+        seg_off = list(chan_off.kl_datas[KL_TYPE.K_1M].seg_list)
+        self.assertEqual(len(seg_on), len(seg_off))
+        # 起止/确认状态必须完全一致，仅 is_zs_scene 标记可能不同
+        for a, b in zip(seg_on, seg_off):
+            self.assertEqual(self._seg_fingerprint(a), self._seg_fingerprint(b))
+        # 开关开启时，命中说明或命中段应出现（该样本已确认会命中）
+        notes = [n for s in seg_on for n in getattr(s, "v2_notes", []) if "笔中枢场景命中" in n]
+        hits = [s for s in seg_on if getattr(s, "is_zs_scene", False)]
+        self.assertTrue(notes or hits)
 
 
 if __name__ == "__main__":
