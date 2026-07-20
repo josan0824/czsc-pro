@@ -201,31 +201,65 @@ def read_minute(path: Path) -> pd.DataFrame:
     return decode_minute(Path(path).read_bytes())
 
 
+# 通达信导出 CSV 的中文表头 → 统一英文列名。英文表头经此映射不变。
+_EXPORTED_CSV_CN_COLUMN_MAP = {
+    "时间": "datetime",
+    "代码": "code",
+    "名称": "name",
+    "开盘价": "open",
+    "收盘价": "close",
+    "最高价": "high",
+    "最低价": "low",
+    "成交量": "volume",
+    "成交额": "amount",
+    "涨幅": "pct_chg",
+    "振幅": "amplitude",
+}
+
+
+def _exported_csv_stems(symbol: str) -> list[str]:
+    """File-name stems to glob for one symbol.
+
+    通达信导出有两种命名：带市场前缀（``sh000001``）与裸 6 位代码（``000001``）。
+    调用方固定传入 ``f"{market.lower()}{symbol}"``（如 ``sh000001``），但磁盘文件
+    可能只有裸代码名，因此两种都要尝试。
+    """
+    sym = str(symbol).lower()
+    stems = [sym]
+    if len(sym) > 6 and sym[:2] in ("sh", "sz", "bj") and sym[2:].isdigit():
+        stems.append(sym[2:])
+    return stems
+
+
 def read_exported_minute_csv(vipdoc_dir: Path, symbol: str) -> pd.DataFrame:
     """Read one symbol from exported ``YYYY-MM_1min/YYYYMMDD_1min`` CSV files.
 
     The exported files are not standard TongDaXin ``.lc1`` files.  They use
     UTF-8 with a BOM and keep one trading day per CSV, for example::
 
-        vipdoc/2026-07_1min/20260701_1min/sh688136.csv
+        vipdoc/2026-07_1min/20260701_1min/sh688136.csv   # 英文表头 + 市场前缀
+        vipdoc/2026-06_1min/20260602_1min/000001.csv     # 中文表头 + 裸 6 位代码
 
-    The glob includes the requested symbol in its filename, so a lookup does
-    not load the rest of the monthly archive.
+    Both naming conventions and both Chinese (``时间,开盘价,…``) and English
+    (``datetime,open,…``) column headers are accepted; Chinese headers are
+    renamed to English before normalization.  The glob includes the requested
+    symbol in its filename, so a lookup does not load the rest of the monthly
+    archive.
     """
     vipdoc_dir = Path(vipdoc_dir)
-    file_name = f"{str(symbol).lower()}.csv"
-    columns = ["datetime", "open", "high", "low", "close", "volume", "amount"]
     parts = []
-    pattern = f"????-??_1min/????????_1min/{file_name}"
-    for path in sorted(vipdoc_dir.glob(pattern)):
-        try:
-            raw = pd.read_csv(path, encoding="utf-8-sig", usecols=columns)
-        except (OSError, UnicodeDecodeError, ValueError, pd.errors.EmptyDataError, pd.errors.ParserError) as err:
-            logger.warning("[tdx_cache] skip invalid exported 1m csv path=%s error=%s", path, err)
-            continue
-        normalized = normalize_reader_df(raw)
-        if not normalized.empty:
-            parts.append(normalized)
+    for stem in _exported_csv_stems(symbol):
+        pattern = f"????-??_1min/????????_1min/{stem}.csv"
+        for path in sorted(vipdoc_dir.glob(pattern)):
+            try:
+                raw = pd.read_csv(path, encoding="utf-8-sig")
+            except (OSError, UnicodeDecodeError, ValueError, pd.errors.EmptyDataError, pd.errors.ParserError) as err:
+                logger.warning("[tdx_cache] skip invalid exported 1m csv path=%s error=%s", path, err)
+                continue
+            raw = raw.rename(columns=_EXPORTED_CSV_CN_COLUMN_MAP)
+            normalized = normalize_reader_df(raw)
+            if not normalized.empty:
+                parts.append(normalized)
 
     if not parts:
         return pd.DataFrame(columns=COLUMNS)

@@ -40,6 +40,30 @@ def _write_exported_1min_csv(root: Path, code: str, rows: list[list]):
     frame.to_csv(path, index=False, encoding="utf-8-sig")
 
 
+def _write_exported_cn_1min_csv(root: Path, code: str, rows: list[list]):
+    """通达信导出原样：中文表头 + 裸 6 位代码文件名（无市场前缀）。
+
+    rows: [时间, 开盘价, 收盘价, 最高价, 最低价, 成交额, 涨幅, 振幅]
+    """
+    first_time = pd.Timestamp(rows[0][0])
+    path = (
+        root
+        / "vipdoc"
+        / f"{first_time:%Y-%m}_1min"
+        / f"{first_time:%Y%m%d}_1min"
+        / f"{code.lower()}.csv"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame = pd.DataFrame(
+        [
+            [dt, code, "上证指数", open_price, close_price, high_price, low_price, amount, pct, amp]
+            for dt, open_price, high_price, low_price, close_price, amount, pct, amp in rows
+        ],
+        columns=["时间", "代码", "名称", "开盘价", "收盘价", "最高价", "最低价", "成交额", "涨幅", "振幅"],
+    )
+    frame.to_csv(path, index=False, encoding="utf-8-sig")
+
+
 class TdxCacheLocalFirstTest(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -223,6 +247,31 @@ class TdxCacheExportedMinuteTest(unittest.TestCase):
         self.assertEqual(["2026/07/01 09:35"], [bar.time.to_str() for bar in bars])
         self.assertAlmostEqual(20.0, bars[0].open, places=4)
         self.assertAlmostEqual(20.7, bars[0].close, places=4)
+
+    def test_reads_bare_symbol_cn_header_csv_for_sh000001(self):
+        # 用户真实场景：通达信导出的 000001.csv（中文表头、无市场前缀），上证指数
+        _write_exported_cn_1min_csv(
+            self.root,
+            "000001",
+            [
+                # [时间, 开盘价, 最高价, 最低价, 收盘价, 成交额, 涨幅, 振幅]
+                ["2026-06-02 09:30", 4061.46, 4061.46, 4061.46, 4061.46, 8996119400, 0.0, 0.0],
+                ["2026-06-02 09:31", 4061.46, 4063.28, 4056.5, 4056.5, 25528093848, -0.12, 0.17],
+            ],
+        )
+
+        with patch("DataAPI.TdxCacheAPI.CMootdx") as mootdx_cls:
+            bars = list(
+                CTdxCache("SH000001", KL_TYPE.K_1M, "2026-06-01", None).get_kl_data()
+            )
+
+        self.assertFalse(mootdx_cls.called, "本地导出覆盖请求范围时不应联网")
+        self.assertEqual(
+            ["2026/06/02 09:30", "2026/06/02 09:31"],
+            [bar.time.to_str() for bar in bars],
+        )
+        self.assertAlmostEqual(4056.5, bars[-1].close, places=4)
+        self.assertAlmostEqual(25528093848, bars[-1].trade_info.metric[DATA_FIELD.FIELD_TURNOVER], places=0)
 
 
 class TdxCacheOnlineFallbackTest(unittest.TestCase):

@@ -109,6 +109,81 @@ class MinuteIoTest(unittest.TestCase):
             self.assertAlmostEqual(10.4, decoded.iloc[1]["close"], places=4)
 
 
+class ExportedMinuteCsvTest(unittest.TestCase):
+    """导出的 1 分钟 CSV 读取：兼容通达信导出的中文表头 + 无市场前缀文件名。"""
+
+    def _write_cn_csv(self, root: Path, symbol: str, rows: list[list]) -> Path:
+        # rows: [时间, 代码, 名称, 开盘价, 收盘价, 最高价, 最低价, 成交额, 涨幅, 振幅]
+        first = pd.Timestamp(rows[0][0])
+        path = (
+            root
+            / "vipdoc"
+            / f"{first:%Y-%m}_1min"
+            / f"{first:%Y%m%d}_1min"
+            / f"{symbol.lower()}.csv"
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        frame = pd.DataFrame(
+            rows,
+            columns=["时间", "代码", "名称", "开盘价", "收盘价", "最高价", "最低价", "成交额", "涨幅", "振幅"],
+        )
+        frame.to_csv(path, index=False, encoding="utf-8-sig")
+        return path
+
+    def test_reads_chinese_header_bare_symbol_csv(self):
+        # 用户真实场景：vipdoc/2026-06_1min/20260602_1min/000001.csv
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_cn_csv(root, "000001", [
+                ["2026/06/02 09:30", "000001", "上证指数", 4061.46, 4061.46, 4061.46, 4061.46, 8996119400, 0.0, 0.0],
+                ["2026/06/02 09:31", "000001", "上证指数", 4061.46, 4056.5, 4063.28, 4056.5, 25528093848, -0.12, 0.17],
+            ])
+            # 调用方传入带市场前缀的 symbol（sh000001），文件名却无前缀（000001.csv）
+            df = io.read_exported_minute_csv(root / "vipdoc", "sh000001")
+
+        self.assertEqual(2, len(df))
+        self.assertEqual(io.COLUMNS, list(df.columns))
+        self.assertEqual(pd.Timestamp("2026-06-02 09:30"), df.iloc[0]["datetime"])
+        self.assertAlmostEqual(4056.5, df.iloc[-1]["close"], places=4)
+        self.assertAlmostEqual(25528093848, df.iloc[-1]["amount"], places=0)
+        # 无成交量列 → volume 填 0
+        self.assertAlmostEqual(0.0, df.iloc[-1]["volume"], places=4)
+
+    def test_reads_english_header_prefixed_symbol_csv(self):
+        # 向后兼容：英文表头 + sh 前缀文件名
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "vipdoc" / "2026-07_1min" / "20260701_1min" / "sh688136.csv"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(
+                [["2026-07-01 09:30", "sh688136", "金山办公", 20.8, 20.8, 20.8, 20.8, 1025, 2132000, 0, 0]],
+                columns=["datetime", "code", "name", "open", "close", "high", "low", "volume", "amount", "pct_chg", "amplitude"],
+            ).to_csv(path, index=False, encoding="utf-8-sig")
+            df = io.read_exported_minute_csv(root / "vipdoc", "sh688136")
+
+        self.assertEqual(1, len(df))
+        self.assertEqual(io.COLUMNS, list(df.columns))
+        self.assertAlmostEqual(20.8, df.iloc[0]["close"], places=4)
+        self.assertAlmostEqual(1025, df.iloc[0]["volume"], places=0)
+        self.assertAlmostEqual(2132000, df.iloc[0]["amount"], places=0)
+
+    def test_merges_overlap_across_days_keep_last(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_cn_csv(root, "000001", [
+                ["2026/06/02 09:30", "000001", "上证指数", 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0],
+            ])
+            self._write_cn_csv(root, "000001", [
+                ["2026/06/02 09:30", "000001", "上证指数", 1.0, 2.5, 2.5, 2.5, 0.0, 0.0, 0.0],  # 同时刻修正
+                ["2026/06/03 09:30", "000001", "上证指数", 3.0, 3.0, 3.0, 3.0, 0.0, 0.0, 0.0],
+            ])
+            df = io.read_exported_minute_csv(root / "vipdoc", "sh000001")
+
+        self.assertEqual(2, len(df))
+        self.assertAlmostEqual(2.5, df.iloc[0]["close"], places=4)  # 后导出者胜出
+        self.assertEqual(pd.Timestamp("2026-06-03 09:30"), df.iloc[1]["datetime"])
+
+
 class ResampleTest(unittest.TestCase):
     def _min_df(self, rows):
         return pd.DataFrame(rows, columns=["datetime", "open", "high", "low", "close", "amount", "volume"])
