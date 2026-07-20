@@ -32,7 +32,7 @@ DEFAULT_CODE = "SH000001"
 DEFAULT_DAYS = 30
 DEFAULT_CHART_TIMEOUT_SECONDS = 20
 DEFAULT_LV = "1m"
-DEFAULT_SOURCE = "mootdx"
+DEFAULT_SOURCE = "tdx_history"
 DEFAULT_SEG_ALGO = "chan_v2"
 TDX_HISTORY_DATA_SOURCE = "custom:TdxCacheAPI.CTdxCache"
 CODE_NAME_MAP = {
@@ -901,8 +901,8 @@ iframe {{
           <option value="250">250天</option>
         </select>
         <select id="source-select" name="source">
-          <option value="mootdx" selected>通达信</option>
-          <option value="tdx_history">通达信历史数据</option>
+          <option value="mootdx">通达信</option>
+          <option value="tdx_history" selected>通达信历史数据</option>
           <option value="eastmoney">东方财富</option>
         </select>
         <select id="seg-algo-select" name="seg_algo" title="切换线段划分算法">
