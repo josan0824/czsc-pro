@@ -43,6 +43,8 @@ class CSeg(Generic[LINE_TYPE]):
 
         self.ele_inside_is_sure = False
 
+        self.is_zs_scene = False  # 命中笔中枢场景（同向更极端笔端点替代）的线段
+
     def set_seg_idx(self, idx):
         self.seg_idx = idx
 
