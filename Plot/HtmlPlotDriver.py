@@ -2131,11 +2131,11 @@ for bi in begin_next ... window_end:
         for zs in scene_zs_rects:
             svg.append(
                 f'<rect class="chart-scene-zs" x="{zs["x"]:.1f}" y="{zs["y"]:.1f}" width="{zs["w"]:.1f}" height="{zs["h"]:.1f}" '
-                f'fill="none" stroke="#f59e0b" stroke-width="1.6" stroke-dasharray="6 4" opacity=".95" rx="1"/>'
+                f'fill="none" stroke="#8b5cf6" stroke-width="1.6" stroke-dasharray="6 4" opacity=".95" rx="1"/>'
             )
             svg.append(
                 f'<text class="chart-note-label" x="{zs["x"] + 4:.1f}" y="{zs["y"] + zs["h"] + 12:.1f}" '
-                f'fill="#f59e0b" font-size="10">笔中枢[{_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}] {zs["cnt"]}笔</text>'
+                f'fill="#8b5cf6" font-size="10">笔中枢[{_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}] {zs["cnt"]}笔</text>'
             )
 
         for pen in pens:
@@ -2286,6 +2286,7 @@ for bi in begin_next ... window_end:
     <span><i class="swatch" style="background:#38bdf8"></i>底特征序列</span>
     <span><i class="swatch" style="background:#ef4444"></i>买点</span>
     <span><i class="swatch" style="background:#22c55e"></i>卖点</span>
+    <span><i class="swatch" style="background:transparent;border:1.6px dashed #8b5cf6"></i>场景中枢（笔中枢场景命中段）</span>
   </div>
 </div>
 {pen_table}
