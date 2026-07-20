@@ -559,6 +559,7 @@ class CSegListChanV2(CSegListChan):
             self.lst[-1].v2_notes = list(getattr(fx_eigen, "v2_notes", []))
             if getattr(fx_eigen, "zs_scene_result", None) is not None:
                 self.lst[-1].is_zs_scene = True
+                self.lst[-1].zs_scene_zs_list = list(fx_eigen.zs_scene_result.zs_list)
             if is_true:
                 self.cal_seg_sure(bi_lst, end_bi_idx + 1)
         else:

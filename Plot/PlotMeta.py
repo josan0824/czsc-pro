@@ -70,6 +70,7 @@ class CSeg_meta:
         self.eigen_gap = bool(seg.eigen_fx and seg.eigen_fx.ele[1] and seg.eigen_fx.ele[1].gap)
         self.extra_notes = list(getattr(seg, "v2_notes", []))
         self.is_zs_scene = bool(getattr(seg, "is_zs_scene", False))
+        self.zs_scene_zs = list(getattr(seg, "zs_scene_zs_list", []) or [])
 
         self.tl = {}
         if seg.support_trend_line and seg.support_trend_line.line:

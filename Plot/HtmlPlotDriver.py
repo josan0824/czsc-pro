@@ -1976,6 +1976,34 @@ for bi in begin_next ... window_end:
 
         zs_rects = collect_zs_rects(meta.zs_lst, "bi") + collect_zs_rects(meta.segzs_lst, "seg")
 
+        def collect_scene_zs_rects(seg_list, bi_meta_list) -> List[Dict[str, Any]]:
+            rects: List[Dict[str, Any]] = []
+            for seg in seg_list:
+                for k, zs in enumerate(getattr(seg, "zs_scene_zs", []) or []):
+                    fi = int(getattr(zs, "first_bi_idx", -1))
+                    li = int(getattr(zs, "last_bi_idx", -1))
+                    if fi < 0 or li < 0 or fi >= len(bi_meta_list) or li >= len(bi_meta_list):
+                        continue
+                    x_begin = int(bi_meta_list[fi].begin_x)
+                    x_end = int(bi_meta_list[li].end_x)
+                    low = float(getattr(zs, "low", 0))
+                    high = float(getattr(zs, "high", 0))
+                    rects.append({
+                        "k": k,
+                        "x": round(left + x_begin * bar_w, 1),
+                        "y": round(yp(high), 1),
+                        "w": round(max(bar_w, (x_end - x_begin + 1) * bar_w), 1),
+                        "h": round(max(5, yp(low) - yp(high)), 1),
+                        "low": low,
+                        "high": high,
+                        "first": fi,
+                        "last": li,
+                        "cnt": int(getattr(zs, "bi_count", 0)),
+                    })
+            return rects
+
+        scene_zs_rects = collect_scene_zs_rects(meta.seg_list, meta.bi_list)
+
         bs_points = []
         label_pad = base_price_range * 0.087
         for i, bsp in enumerate(all_bs_points):
@@ -2099,6 +2127,16 @@ for bi in begin_next ... window_end:
                     f'<text class="chart-note-label" x="{zs["x"] + 4:.1f}" y="{zs["y"] - 4:.1f}" fill="{color}" font-size="10">'
                     f'ZS {_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}</text>'
                 )
+
+        for zs in scene_zs_rects:
+            svg.append(
+                f'<rect class="chart-scene-zs" x="{zs["x"]:.1f}" y="{zs["y"]:.1f}" width="{zs["w"]:.1f}" height="{zs["h"]:.1f}" '
+                f'fill="none" stroke="#f59e0b" stroke-width="1.6" stroke-dasharray="6 4" opacity=".95" rx="1"/>'
+            )
+            svg.append(
+                f'<text class="chart-note-label" x="{zs["x"] + 4:.1f}" y="{zs["y"] + zs["h"] + 12:.1f}" '
+                f'fill="#f59e0b" font-size="10">笔中枢[{_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}] {zs["cnt"]}笔</text>'
+            )
 
         for pen in pens:
             dash = "" if pen["sure"] else ' stroke-dasharray="5 4"'
@@ -2265,6 +2303,7 @@ var data = {{
   segments:{_json(segments)},
   eigenBoxes:{_json(eigen_boxes)},
   zs:{_json(zs_rects)},
+  sceneZs:{_json(scene_zs_rects)},
   bsPoints:{_json(bs_points)},
   totalBars:{len(bars)}
 }};
