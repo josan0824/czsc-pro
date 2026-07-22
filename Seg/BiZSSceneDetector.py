@@ -13,13 +13,20 @@ class BiZSInfo:
     high: float         # 中枢上限 = min(前3笔高点)，锁定
     peak_low: float     # 外围低点 = min(涉及笔低点)
     peak_high: float    # 外围高点 = max(涉及笔高点)
-    bi_count: int       # last - first + 1（含离开笔）
+    bi_count: int       # last - first + 1（不含破坏笔/离开笔）
 
 
 @dataclass
 class ZSSceneResult:
     zs_list: List[BiZSInfo]
     endpoint_bi_idx: int
+
+
+@dataclass
+class ZSBreakoutResult:
+    """规则四触发结果：反向笔突破上一中枢边界。"""
+    breakout_bi_idx: int   # 触发笔（反向突破笔）idx
+    zs: BiZSInfo            # 被突破的上一中枢（zs_list[-1]）
 
 
 def _intersects(bi, low: float, high: float) -> bool:
@@ -36,8 +43,8 @@ def detect_zs_scene(bi_list, begin_idx: int, end_idx: int, seg_dir) -> Optional[
 
     命中条件：
       1. 至少 1 个笔中枢（连续 3 笔重叠区间存在）；
-      2. 每个笔中枢笔数 <= 8（含离开笔）；
-      3. 相邻两中枢 [low, high] 不相交（相接即视为相交）。
+      2. 每个笔中枢笔数 <= 8（不含破坏笔，破坏笔算下一中枢的第一笔）；
+      3. 相邻两中枢单调不重叠：向上段 a.ZG < b.ZD，向下段 a.ZD > b.ZG。
     未命中返回 None。
 
     bi_list 元素只需提供 .dir(BI_DIR)、._high()、._low()。
@@ -75,7 +82,9 @@ def detect_zs_scene(bi_list, begin_idx: int, end_idx: int, seg_dir) -> Optional[
             else:
                 leave = j
                 break
-        last = leave if leave is not None else end_idx
+        # 破坏笔(leave)不计入本中枢(注A)：last 指向最后一根与中枢区间重叠的笔；
+        # 下一中枢从破坏笔起算(i = last+1 = leave)。
+        last = (leave - 1) if leave is not None else end_idx
         zs_list.append(BiZSInfo(
             first_bi_idx=f,
             last_bi_idx=last,
@@ -93,9 +102,14 @@ def detect_zs_scene(bi_list, begin_idx: int, end_idx: int, seg_dir) -> Optional[
         return None
     if any(z.bi_count > 8 for z in zs_list):
         return None
+    # 相邻中枢须单调不重叠：向上段前低后高(a.ZG < b.ZD)，向下段前高后低(a.ZD > b.ZG)
     for a, b in zip(zs_list, zs_list[1:]):
-        if not (a.high < b.low or b.high < a.low):
-            return None
+        if is_up:
+            if not (a.high < b.low):
+                return None
+        else:
+            if not (a.low > b.high):
+                return None
 
     endpoint = begin_idx
     ext = None
@@ -108,3 +122,30 @@ def detect_zs_scene(bi_list, begin_idx: int, end_idx: int, seg_dir) -> Optional[
             ext = v
             endpoint = k
     return ZSSceneResult(zs_list=zs_list, endpoint_bi_idx=endpoint)
+
+
+def detect_zs_breakout(bi_list, zs_list, seg_dir) -> Optional[ZSBreakoutResult]:
+    """
+    规则四触发判定：取候选段中枢列表的最后一个中枢（"上一中枢"），
+    从该中枢之后起找第一根反向笔突破其边界。
+
+      向下候选（seg_dir == DOWN）：找向上笔 _high() > zs.high（突破 ZG）。
+      向上候选（seg_dir == UP）  ：找向下笔 _low() < zs.low（突破 ZD）。
+
+    命中返回 ZSBreakoutResult(触发笔 idx, 中枢)；否则 None。
+    触发对象是单根反向笔（非特征分型），因此比 reverse-fractal 确认更早触发。
+    破坏笔不计入中枢外围极值（与规则五注A一致），故从 zs.last_bi_idx+1 起扫。
+    """
+    if not zs_list:
+        return None
+    zs = zs_list[-1]
+    is_down_seg = seg_dir == BI_DIR.DOWN
+    for k in range(zs.last_bi_idx + 1, len(bi_list)):
+        bi = bi_list[k]
+        if is_down_seg:
+            if bi.dir == BI_DIR.UP and bi._high() > zs.high:
+                return ZSBreakoutResult(breakout_bi_idx=k, zs=zs)
+        else:
+            if bi.dir == BI_DIR.DOWN and bi._low() < zs.low:
+                return ZSBreakoutResult(breakout_bi_idx=k, zs=zs)
+    return None

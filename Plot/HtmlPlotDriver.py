@@ -1297,6 +1297,8 @@ for bi in begin_next ... window_end:
                 notes.append(v2_mode["desc"])
             if getattr(seg, "is_zs_scene", False):
                 notes.append("笔中枢场景命中段：区间内同向更极端笔端点作为候选端点替代。")
+            if getattr(seg, "is_zs_breakout", False):
+                notes.append("规则四终止段：反向笔突破上一中枢边界，线段端点定格于突破前极值笔。")
             extra_notes = list(getattr(seg, "extra_notes", []))
             if extra_notes:
                 notes.extend(extra_notes)
@@ -2004,6 +2006,35 @@ for bi in begin_next ... window_end:
 
         scene_zs_rects = collect_scene_zs_rects(meta.seg_list, meta.bi_list)
 
+        def collect_breakout_marks(seg_list, bi_meta_list) -> List[Dict[str, Any]]:
+            """规则四终止标记：被突破的中枢边界水平线 + 突破笔位置。"""
+            marks: List[Dict[str, Any]] = []
+            for seg in seg_list:
+                info = getattr(seg, "zs_breakout_info", None)
+                if not info:
+                    continue
+                bk_idx = int(info.get("breakout_bi_idx", -1))
+                zs = info.get("zs")
+                if zs is None or bk_idx < 0 or bk_idx >= len(bi_meta_list):
+                    continue
+                fi = int(getattr(zs, "first_bi_idx", -1))
+                if fi < 0 or fi >= len(bi_meta_list):
+                    continue
+                bound = float(info.get("bound", 0))
+                x0 = int(bi_meta_list[fi].begin_x)
+                x1 = int(bi_meta_list[bk_idx].end_x)
+                marks.append({
+                    "x0": round(left + x0 * bar_w, 1),
+                    "x1": round(left + x1 * bar_w, 1),
+                    "y": round(yp(bound), 1),
+                    "bound": bound,
+                    "kind": info.get("bound_kind", ""),
+                    "bk_x": round(left + x1 * bar_w, 1),
+                })
+            return marks
+
+        breakout_marks = collect_breakout_marks(meta.seg_list, meta.bi_list)
+
         bs_points = []
         label_pad = base_price_range * 0.087
         for i, bsp in enumerate(all_bs_points):
@@ -2136,6 +2167,20 @@ for bi in begin_next ... window_end:
             svg.append(
                 f'<text class="chart-note-label" x="{zs["x"] + 4:.1f}" y="{zs["y"] + zs["h"] + 12:.1f}" '
                 f'fill="#8b5cf6" font-size="10">笔中枢[{_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}] {zs["cnt"]}笔</text>'
+            )
+
+        for m in breakout_marks:
+            svg.append(
+                f'<line class="chart-zs-breakout" x1="{m["x0"]:.1f}" y1="{m["y"]:.1f}" x2="{m["x1"]:.1f}" y2="{m["y"]:.1f}" '
+                f'stroke="#ef4444" stroke-width="1.8" stroke-dasharray="4 3" opacity=".95"/>'
+            )
+            svg.append(
+                f'<circle class="chart-zs-breakout-pt" cx="{m["bk_x"]:.1f}" cy="{m["y"]:.1f}" r="2.6" '
+                f'fill="#ef4444" opacity=".95"/>'
+            )
+            svg.append(
+                f'<text class="chart-note-label" x="{m["x1"] - 4:.1f}" y="{m["y"] - 5:.1f}" '
+                f'fill="#ef4444" font-size="10" text-anchor="end">规则四突破{m["kind"]}={_fmt_num(m["bound"])}</text>'
             )
 
         for pen in pens:
@@ -2287,6 +2332,7 @@ for bi in begin_next ... window_end:
     <span><i class="swatch" style="background:#ef4444"></i>买点</span>
     <span><i class="swatch" style="background:#22c55e"></i>卖点</span>
     <span><i class="swatch" style="background:transparent;border:1.6px dashed #8b5cf6"></i>场景中枢（笔中枢场景命中段）</span>
+    <span><i class="swatch" style="background:transparent;border-top:1.8px dashed #ef4444"></i>规则四终止（反向笔突破中枢边界）</span>
   </div>
 </div>
 {pen_table}
@@ -2305,6 +2351,7 @@ var data = {{
   eigenBoxes:{_json(eigen_boxes)},
   zs:{_json(zs_rects)},
   sceneZs:{_json(scene_zs_rects)},
+  breakoutMarks:{_json(breakout_marks)},
   bsPoints:{_json(bs_points)},
   totalBars:{len(bars)}
 }};

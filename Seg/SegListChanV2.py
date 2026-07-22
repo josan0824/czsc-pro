@@ -8,7 +8,7 @@ from Common.func_util import revert_bi_dir
 
 from .Eigen import CEigen
 from .EigenFX import CEigenFX
-from .BiZSSceneDetector import detect_zs_scene
+from .BiZSSceneDetector import detect_zs_breakout, detect_zs_scene
 from .SegConfig import CSegConfig
 from .SegListChan import CSegListChan
 
@@ -81,6 +81,9 @@ class CEigenFXV2(CEigenFX):
         self.v2_notes: List[str] = []
         self.v2_final_all_sure: Optional[bool] = None
         self.zs_scene_result = None
+        self.zs_breakout_hit = False
+        self.zs_breakout_info = None  # {breakout_bi_idx, zs, bound, bound_kind}
+        self.seg_start_idx: Optional[int] = None  # 本候选段真实起点(上一段end_bi.idx+1)
 
     def treat_second_ele(self, bi: CBi) -> bool:
         if self.allow_first_second_include:
@@ -303,6 +306,69 @@ class CEigenFXV2(CEigenFX):
             )
         return self.find_revert_fx(bi_lst, self.final_end_bi_idx + 2, 0, 0)
 
+    def _handle_zs_breakout(self, bi_list, bk) -> Optional[bool]:
+        """规则四：反向笔突破上一中枢边界 -> 寻找反向线段确认当前段。
+
+        优先用中枢场景(detect_zs_scene, 反向dir)寻找反向线段；不满足则用
+        特征分型(_collect_fx_events, 反向dir)。找到则当前段定格于触发笔之前
+        的同向极值笔，返回 True；否则返回 None（不确认，等后续笔再判，落到
+        下方既有扫描流程）。
+        """
+        assert self.ele[0] is not None
+        reverse_dir = revert_bi_dir(self.dir)
+        seg_start_idx = self.seg_start_idx if self.seg_start_idx is not None else max(0, self.ele[0].lst[0].idx - 1)
+        is_up = self.dir == BI_DIR.UP
+
+        # 确认端点：触发笔之前范围内最极端的同向笔（不再用触发笔之后的极值更新）
+        endpoint = self.final_end_bi_idx
+        ext = None
+        for k in range(seg_start_idx, bk.breakout_bi_idx):
+            bi = bi_list[k]
+            if bi.dir != self.dir:
+                continue
+            v = bi._high() if is_up else bi._low()
+            if ext is None or (is_up and v > ext) or (not is_up and v < ext):
+                ext = v
+                endpoint = k
+
+        # 反向线段寻找：优先中枢场景，其次特征分型
+        zs_rev = detect_zs_scene(bi_list, bk.breakout_bi_idx, len(bi_list) - 1, reverse_dir)
+        if zs_rev is not None:
+            confirm_kind = f"反向中枢场景（{len(zs_rev.zs_list)}个笔中枢）"
+        else:
+            rev_events = self._collect_fx_events(bi_list, reverse_dir, bk.breakout_bi_idx)
+            if rev_events:
+                confirm_kind = "反向特征分型"
+            else:
+                self.v2_notes.append(
+                    f"规则四：第{bk.breakout_bi_idx + 1}笔反向笔突破上一中枢"
+                    f"{'ZG' if not is_up else 'ZD'}，但反向线段尚未形成，当前段暂不确认。"
+                )
+                return None
+
+        self.final_end_bi_idx = endpoint
+        self.last_evidence_bi = bi_list[bk.breakout_bi_idx]
+        self.last_evidence_bi_is_sure = bi_list[bk.breakout_bi_idx].is_used_to_be_sure
+        self.v2_final_all_sure = (
+            bi_list[endpoint].is_used_to_be_sure and bi_list[bk.breakout_bi_idx].is_used_to_be_sure
+        )
+        bound = bk.zs.high if not is_up else bk.zs.low
+        bound_kind = "ZG" if not is_up else "ZD"
+        self.zs_breakout_hit = True
+        self.zs_breakout_info = {
+            "breakout_bi_idx": bk.breakout_bi_idx,
+            "zs": bk.zs,
+            "bound": bound,
+            "bound_kind": bound_kind,
+        }
+        bound_label = "ZG(上限)" if not is_up else "ZD(下限)"
+        self.v2_notes.append(
+            f"规则四：第{bk.breakout_bi_idx + 1}笔反向笔突破上一中枢{bound_label}；"
+            f"经{confirm_kind}确认反向线段，当前{self._dir_fx_label(self.dir)}"
+            f"定格于第{endpoint + 1}笔（不再用极值笔更新端点）。"
+        )
+        return True
+
     def find_revert_fx(self, bi_list, begin_idx: int, thred_value: float, break_thred: float):
         """
         v2 统一确认：无论第一、第二特征元素是否有缺口，都继续寻找相反
@@ -346,22 +412,39 @@ class CEigenFXV2(CEigenFX):
             ]
             if raw_same_endpoint:
                 assert self.ele[0] is not None
-                seg_start_idx = max(0, self.ele[0].lst[0].idx - 1)
+                seg_start_idx = self.seg_start_idx if self.seg_start_idx is not None else max(0, self.ele[0].lst[0].idx - 1)
                 last_endpoint_bi_idx = raw_same_endpoint[-1].peak_bi_idx
-                zs_res = detect_zs_scene(bi_list, seg_start_idx, last_endpoint_bi_idx, self.dir)
+                # last_endpoint 取到绝对极值时可能跨过中间反弹/反转，使整体 detect_zs_scene
+                # 判 None。改为找最长合法前缀：从 last_endpoint 递减，取第一个命中的 end。
+                zs_res = None
+                valid_end = last_endpoint_bi_idx
+                for k in range(last_endpoint_bi_idx, seg_start_idx, -1):
+                    r = detect_zs_scene(bi_list, seg_start_idx, k, self.dir)
+                    if r is not None:
+                        zs_res = r
+                        valid_end = k
+                        break
                 if zs_res is not None:
-                    same_endpoint_events = raw_same_endpoint
+                    same_endpoint_events = [e for e in raw_same_endpoint if e.peak_bi_idx <= valid_end]
                     self.zs_scene_result = zs_res
                     self.v2_notes.append(
-                        f"笔中枢场景命中：自第{seg_start_idx + 1}笔至第{last_endpoint_bi_idx + 1}笔，"
+                        f"笔中枢场景命中：自第{seg_start_idx + 1}笔至第{valid_end + 1}笔，"
                         f"共{len(zs_res.zs_list)}个笔中枢；启用同向更极端笔端点替代。"
                     )
+                    # 规则四：反向笔突破上一中枢边界 -> 寻找反向线段确认当前段（优先于继续延伸）
+                    bk = detect_zs_breakout(bi_list, zs_res.zs_list, self.dir)
+                    if bk is not None and self._handle_zs_breakout(bi_list, bk) is True:
+                        return True
         events = sorted(
             [(event.evidence_bi_idx, "same", event) for event in same_events] +
             [(event.evidence_bi_idx, "same_endpoint", event) for event in same_endpoint_events] +
             [(event.evidence_bi_idx, "reverse", event) for event in reverse_events],
             key=lambda item: (item[0], 0 if item[1] in ("same", "same_endpoint") else 1),
         )
+
+        # 规则三有效（笔中枢场景命中）时，线段为单边段：压制反向特征分型确认，
+        # 仅由规则四（反向笔突破上一中枢边界）终止；否则沿用特征分型确认。
+        suppress_reverse_confirm = self.zs_scene_result is not None
 
         reverse_candidate: Optional[_V2FxEvent] = None
         for _, kind, event in events:
@@ -374,6 +457,13 @@ class CEigenFXV2(CEigenFX):
                         f"找到相反{self._event_note_text(event, bi_list, self._opposite_fx_label(self.dir))}；"
                         f"与当前同类{self._event_note_text(current_event, bi_list, self._dir_fx_label(self.dir))}"
                         f"跨度{span}笔，不满足至少3笔，暂不作为确认候选。"
+                    )
+                    continue
+                if suppress_reverse_confirm:
+                    self.v2_notes.append(
+                        f"找到相反{self._event_note_text(event, bi_list, self._opposite_fx_label(self.dir))}；"
+                        f"但规则三单边场景有效，压制反向特征分型确认，线段继续延伸，"
+                        f"等待规则四（反向笔突破上一中枢边界）触发终止。"
                     )
                     continue
                 self.last_evidence_bi = bi_list[event.evidence_bi_idx]
@@ -402,26 +492,34 @@ class CEigenFXV2(CEigenFX):
                 if exact_reverse is not None:
                     span = self._event_bi_span(current_event, exact_reverse)
                     if self._event_has_three_bi(current_event, exact_reverse):
-                        self.last_evidence_bi = bi_list[exact_reverse.evidence_bi_idx]
-                        self.last_evidence_bi_is_sure = exact_reverse.all_sure
-                        self.v2_final_all_sure = current_all_sure and exact_reverse.all_sure
+                        if suppress_reverse_confirm:
+                            self.v2_notes.append(
+                                f"发现同向更极端笔端点：第{event.peak_bi_idx + 1}笔；"
+                                f"其正好形成相反特征分型，但规则三单边场景有效，"
+                                f"压制此确认，线段候选端点更新至第{event.peak_bi_idx + 1}笔，等待规则四触发。"
+                            )
+                        else:
+                            self.last_evidence_bi = bi_list[exact_reverse.evidence_bi_idx]
+                            self.last_evidence_bi_is_sure = exact_reverse.all_sure
+                            self.v2_final_all_sure = current_all_sure and exact_reverse.all_sure
+                            self.v2_notes.append(
+                                f"发现同向更极端笔端点：第{event.peak_bi_idx + 1}笔；"
+                                f"该笔正好确认相反"
+                                f"{self._event_note_text(exact_reverse, bi_list, self._opposite_fx_label(self.dir))}；"
+                                f"其与当前同类{self._event_note_text(current_event, bi_list, self._dir_fx_label(self.dir))}"
+                                f"跨度{span}笔，满足至少3笔，相反特征分型优先，"
+                                f"不替代线段候选端点，并以前一个同类{self._dir_fx_label(self.dir)}"
+                                f"第{current_event.peak_bi_idx + 1}笔作为线段端点。"
+                            )
+                            return True
+                    else:
                         self.v2_notes.append(
                             f"发现同向更极端笔端点：第{event.peak_bi_idx + 1}笔；"
-                            f"该笔正好确认相反"
-                            f"{self._event_note_text(exact_reverse, bi_list, self._opposite_fx_label(self.dir))}；"
-                            f"其与当前同类{self._event_note_text(current_event, bi_list, self._dir_fx_label(self.dir))}"
-                            f"跨度{span}笔，满足至少3笔，相反特征分型优先，"
-                            f"不替代线段候选端点，并以前一个同类{self._dir_fx_label(self.dir)}"
-                            f"第{current_event.peak_bi_idx + 1}笔作为线段端点。"
+                            f"该笔正好形成相反"
+                            f"{self._event_note_text(exact_reverse, bi_list, self._opposite_fx_label(self.dir))}，但与当前同类"
+                            f"{self._event_note_text(current_event, bi_list, self._dir_fx_label(self.dir))}"
+                            f"跨度{span}笔，不满足至少3笔，继续按同向端点替代检查。"
                         )
-                        return True
-                    self.v2_notes.append(
-                        f"发现同向更极端笔端点：第{event.peak_bi_idx + 1}笔；"
-                        f"该笔正好形成相反"
-                        f"{self._event_note_text(exact_reverse, bi_list, self._opposite_fx_label(self.dir))}，但与当前同类"
-                        f"{self._event_note_text(current_event, bi_list, self._dir_fx_label(self.dir))}"
-                        f"跨度{span}笔，不满足至少3笔，继续按同向端点替代检查。"
-                    )
 
             between_reverse_events = [
                 reverse_event for reverse_event in reverse_events
@@ -540,6 +638,9 @@ class CSegListChanV2(CSegListChan):
                 break
 
     def treat_fx_eigen(self, fx_eigen, bi_lst):
+        # 候选段真实起点：上一段终点+1（首段为0），供 find_revert_fx 的中枢场景检测使用，
+        # 避免用特征元素起点(可能落在段中后部)而漏掉首个中枢。
+        fx_eigen.seg_start_idx = 0 if len(self) == 0 else self[-1].end_bi.idx + 1
         _test = fx_eigen.can_be_end(bi_lst)
         end_bi_idx = fx_eigen.final_end_bi_idx if fx_eigen.final_end_bi_idx is not None else fx_eigen.GetPeakBiIdx()
         if _test in [True, None]:
@@ -560,6 +661,9 @@ class CSegListChanV2(CSegListChan):
             if getattr(fx_eigen, "zs_scene_result", None) is not None:
                 self.lst[-1].is_zs_scene = True
                 self.lst[-1].zs_scene_zs_list = list(fx_eigen.zs_scene_result.zs_list)
+            if getattr(fx_eigen, "zs_breakout_hit", False):
+                self.lst[-1].is_zs_breakout = True
+                self.lst[-1].zs_breakout_info = getattr(fx_eigen, "zs_breakout_info", None)
             if is_true:
                 self.cal_seg_sure(bi_lst, end_bi_idx + 1)
         else:
