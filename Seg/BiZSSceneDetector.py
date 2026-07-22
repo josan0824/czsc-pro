@@ -37,7 +37,7 @@ def detect_zs_scene(bi_list, begin_idx: int, end_idx: int, seg_dir) -> Optional[
     命中条件：
       1. 至少 1 个笔中枢（连续 3 笔重叠区间存在）；
       2. 每个笔中枢笔数 <= 8（含离开笔）；
-      3. 相邻两中枢 [peak_low, peak_high] 不相交。
+      3. 相邻两中枢 [low, high] 不相交（相接即视为相交）。
     未命中返回 None。
 
     bi_list 元素只需提供 .dir(BI_DIR)、._high()、._low()。
@@ -94,7 +94,7 @@ def detect_zs_scene(bi_list, begin_idx: int, end_idx: int, seg_dir) -> Optional[
     if any(z.bi_count > 8 for z in zs_list):
         return None
     for a, b in zip(zs_list, zs_list[1:]):
-        if not (a.peak_high < b.peak_low or b.peak_high < a.peak_low):
+        if not (a.high < b.low or b.high < a.low):
             return None
 
     endpoint = begin_idx

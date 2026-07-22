@@ -103,8 +103,9 @@ class TestDetectZSScene(unittest.TestCase):
         self.assertIsNotNone(res)
         self.assertEqual(res.zs_list[0].bi_count, 8)
 
-    def test_adjacent_zs_overlap_miss(self):
-        # 两中枢外围区间相交 -> 不命中
+    def test_adjacent_zs_peak_overlap_but_lowhigh_disjoint_hit(self):
+        # 两中枢 [peak_low,peak_high] 相接/相交，但 [low,high] 不重叠 -> 命中
+        # （旧规则用外围判定会判为不命中；现规则改用中枢 low/high，更宽松）
         seq = _seq([
             (True,  0, 10),  # S1
             (False, 2, 4),   # X1 中枢1=[1..4]
@@ -114,6 +115,28 @@ class TestDetectZSScene(unittest.TestCase):
             (False, 6, 9),   # X3 中枢2 peak 与中枢1 peak 重叠
             (True,  6, 20),  # S4
             (False, 7, 12),  # X4
+        ])
+        res = detect_zs_scene(seq, 0, 7, BI_DIR.UP)
+        self.assertIsNotNone(res)
+        self.assertEqual(len(res.zs_list), 2)
+        # 中枢1 [low=3, high=4]，中枢2 [low=7, high=9]：high4 < low7，不重叠
+        self.assertLess(res.zs_list[0].high, res.zs_list[1].low)
+        self.assertEqual(res.zs_list[0].first_bi_idx, 1)
+        self.assertEqual(res.zs_list[0].last_bi_idx, 4)
+        self.assertEqual(res.zs_list[1].first_bi_idx, 5)
+        self.assertEqual(res.zs_list[1].last_bi_idx, 7)
+
+    def test_adjacent_zs_lowhigh_overlap_miss(self):
+        # 两中枢 [low,high] 重叠 -> 不命中（新规则的拒绝路径）
+        seq = _seq([
+            (True,  0, 10),   # S1
+            (False, 5, 7),    # X1 中枢1进入
+            (True,  5, 8),    # S2
+            (False, 6, 9),    # X2  中枢1=[6,7]
+            (True,  12, 15),  # S3 离开 idx4
+            (False, 6, 8),    # X3 中枢2进入
+            (True,  6, 9),    # S4
+            (False, 6, 7),    # X4  中枢2=[6,7] 与中枢1 low/high 重叠
         ])
         self.assertIsNone(detect_zs_scene(seq, 0, 7, BI_DIR.UP))
 
