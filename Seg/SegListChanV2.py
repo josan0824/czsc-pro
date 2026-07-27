@@ -685,6 +685,16 @@ class CSegListChanV2(CSegListChan):
             if getattr(fx_eigen, "zs_scene_result", None) is not None:
                 self.lst[-1].is_zs_scene = True
                 self.lst[-1].zs_scene_zs_list = list(fx_eigen.zs_scene_result.zs_list)
+            elif self.config.zs_scene:
+                display_zs = detect_zs_scene(bi_lst, self.lst[-1].start_bi.idx, self.lst[-1].end_bi.idx, self.lst[-1].dir)
+                if display_zs is not None:
+                    if getattr(display_zs, "is_valid", True):
+                        self.lst[-1].zs_scene_zs_list = list(display_zs.zs_list)
+                    else:
+                        self.lst[-1].zs_scene_discarded_zs_list = [
+                            zs for zs in display_zs.zs_list
+                            if zs.bi_count > 8
+                        ]
             if getattr(fx_eigen, "zs_scene_discarded_result", None) is not None:
                 self.lst[-1].zs_scene_discarded_zs_list = [
                     zs for zs in fx_eigen.zs_scene_discarded_result.zs_list
