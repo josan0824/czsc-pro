@@ -340,6 +340,10 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
 .kline-layer.active {{ display:inline; }}
 .eigen-layer {{ display:none; }}
 .eigen-layer.active {{ display:inline; }}
+.bi-zs-layer {{ display:none; }}
+.bi-zs-layer.active {{ display:inline; }}
+.seg-zs-layer {{ display:none; }}
+.seg-zs-layer.active {{ display:inline; }}
 .scene-zs-layer {{ display:none; }}
 .scene-zs-layer.active {{ display:inline; }}
 .zs-breakout-layer {{ display:none; }}
@@ -2001,9 +2005,11 @@ for bi in begin_next ... window_end:
                         continue
                     x_begin = int(bi_meta_list[fi].begin_x)
                     x_end = int(bi_meta_list[li].end_x)
+                    form_last = min(li, fi + 2)
+                    form_end = int(bi_meta_list[form_last].end_x)
                     low = float(getattr(zs, "low", 0))
                     high = float(getattr(zs, "high", 0))
-                    rects.append({
+                    rect = {
                         "k": len(rects),
                         "seg": seg_idx + 1,
                         "x": round(left + x_begin * bar_w, 1),
@@ -2017,7 +2023,20 @@ for bi in begin_next ... window_end:
                         "firstRow": fi + 1,
                         "lastRow": li + 1,
                         "cnt": int(getattr(zs, "bi_count", 0)),
-                    })
+                        "formX": round(left + x_begin * bar_w, 1),
+                        "formW": round(max(bar_w, (form_end - x_begin + 1) * bar_w), 1),
+                        "formLast": form_last,
+                        "formLastRow": form_last + 1,
+                    }
+                    if li > form_last:
+                        ext_begin = int(bi_meta_list[form_last + 1].begin_x)
+                        rect.update({
+                            "extX": round(left + ext_begin * bar_w, 1),
+                            "extW": round(max(bar_w, (x_end - ext_begin + 1) * bar_w), 1),
+                            "extFirst": form_last + 1,
+                            "extFirstRow": form_last + 2,
+                        })
+                    rects.append(rect)
             return rects
 
         scene_zs_rects = collect_scene_zs_rects(meta.seg_list, meta.bi_list)
@@ -2160,25 +2179,29 @@ for bi in begin_next ... window_end:
             )
         svg.append("</g>")
 
-        for zs in zs_rects:
-            color = "#f59e0b" if zs["level"].startswith("bi") else "#ef4444"
-            width_px = 1.5 if zs["level"] == "bi" else 2.4
-            dash = "" if zs["sure"] else ' stroke-dasharray="7 4"'
-            opacity = ".88" if zs["level"] in ("bi", "seg") else ".52"
-            svg.append(
-                f'<rect x="{zs["x"]:.1f}" y="{zs["y"]:.1f}" width="{zs["w"]:.1f}" height="{zs["h"]:.1f}" '
-                f'fill="none" stroke="{color}" stroke-width="{width_px}" opacity="{opacity}" rx="1"{dash}/>'
-            )
-            if zs["level"] in ("bi", "seg"):
+        for layer_name, layer_prefix in (("bi-zs-layer", "bi"), ("seg-zs-layer", "seg")):
+            svg.append(f'<g id="{layer_name}-{chart_id}" class="{layer_name}">')
+            for zs in [item for item in zs_rects if item["level"].startswith(layer_prefix)]:
+                color = "#f59e0b" if zs["level"].startswith("bi") else "#ef4444"
+                width_px = 1.5 if zs["level"] == "bi" else 2.4
+                dash = "" if zs["sure"] else ' stroke-dasharray="7 4"'
+                opacity = ".88" if zs["level"] in ("bi", "seg") else ".52"
                 svg.append(
-                    f'<text class="chart-note-label" x="{zs["x"] + 4:.1f}" y="{zs["y"] - 4:.1f}" fill="{color}" font-size="10">'
-                    f'ZS {_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}</text>'
+                    f'<rect x="{zs["x"]:.1f}" y="{zs["y"]:.1f}" width="{zs["w"]:.1f}" height="{zs["h"]:.1f}" '
+                    f'fill="none" stroke="{color}" stroke-width="{width_px}" opacity="{opacity}" rx="1"{dash}/>'
                 )
+                if zs["level"] in ("bi", "seg"):
+                    svg.append(
+                        f'<text class="chart-note-label" x="{zs["x"] + 4:.1f}" y="{zs["y"] - 4:.1f}" fill="{color}" font-size="10">'
+                        f'ZS {_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}</text>'
+                    )
+            svg.append("</g>")
 
         svg.append(f'<g id="scene-zs-layer-{chart_id}" class="scene-zs-layer">')
         for zs in scene_zs_rects:
             scene_title = (
                 f'场景笔中枢：第{zs["firstRow"]}笔-第{zs["lastRow"]}笔，'
+                f'前三笔成中枢闭环至第{zs["formLastRow"]}笔，'
                 f'{zs["cnt"]}笔，区间 {_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}'
             )
             svg.append(
@@ -2187,10 +2210,16 @@ for bi in begin_next ... window_end:
                 f'fill="#8b5cf6" fill-opacity=".001" stroke="none"><title>{html.escape(scene_title)}</title></rect>'
             )
             svg.append(
-                f'<rect class="chart-scene-zs" data-scene-zs="{zs["k"]}" data-first-pen="{zs["firstRow"]}" data-last-pen="{zs["lastRow"]}" '
-                f'x="{zs["x"]:.1f}" y="{zs["y"]:.1f}" width="{zs["w"]:.1f}" height="{zs["h"]:.1f}" '
-                f'fill="none" stroke="#8b5cf6" stroke-width="1.6" stroke-dasharray="6 4" opacity=".95" rx="1"><title>{html.escape(scene_title)}</title></rect>'
+                f'<rect class="chart-scene-zs chart-scene-zs-form" data-scene-zs="{zs["k"]}" data-first-pen="{zs["firstRow"]}" data-last-pen="{zs["lastRow"]}" '
+                f'x="{zs["formX"]:.1f}" y="{zs["y"]:.1f}" width="{zs["formW"]:.1f}" height="{zs["h"]:.1f}" '
+                f'fill="none" stroke="#8b5cf6" stroke-width="1.8" opacity=".98" rx="1"><title>{html.escape(scene_title)}</title></rect>'
             )
+            if "extX" in zs:
+                svg.append(
+                    f'<rect class="chart-scene-zs chart-scene-zs-ext" data-scene-zs="{zs["k"]}" data-first-pen="{zs["extFirstRow"]}" data-last-pen="{zs["lastRow"]}" '
+                    f'x="{zs["extX"]:.1f}" y="{zs["y"]:.1f}" width="{zs["extW"]:.1f}" height="{zs["h"]:.1f}" '
+                    f'fill="none" stroke="#8b5cf6" stroke-width="1.6" stroke-dasharray="6 4" opacity=".95" rx="1"><title>{html.escape(scene_title)}</title></rect>'
+                )
             svg.append(
                 f'<text class="chart-note-label" x="{zs["x"] + 4:.1f}" y="{zs["y"] + zs["h"] + 12:.1f}" '
                 f'fill="#8b5cf6" font-size="10">场景笔中枢[{_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}] {zs["cnt"]}笔</text>'
@@ -2335,6 +2364,8 @@ for bi in begin_next ... window_end:
     <button id="kline-toggle-{chart_id}" class="kline-toggle active" title="显示/隐藏K线" type="button" aria-pressed="true">K线</button>
     <button id="ma-toggle-{chart_id}" class="ma-toggle" title="显示/隐藏均线" type="button" aria-pressed="false">均线</button>
     <button id="eigen-toggle-{chart_id}" class="eigen-toggle" title="显示/隐藏线段特征序列" type="button" aria-pressed="false">特征</button>
+    <button id="bi-zs-toggle-{chart_id}" class="bi-zs-toggle" title="显示/隐藏笔中枢" type="button" aria-pressed="false">笔中枢</button>
+    <button id="seg-zs-toggle-{chart_id}" class="seg-zs-toggle" title="显示/隐藏线段中枢" type="button" aria-pressed="false">线段中枢</button>
     <button id="scene-zs-toggle-{chart_id}" class="scene-zs-toggle" title="显示/隐藏场景笔中枢范围" type="button" aria-pressed="false">场景笔中枢</button>
     <button id="zs-breakout-toggle-{chart_id}" class="zs-breakout-toggle" title="显示/隐藏规则四终止标记" type="button" aria-pressed="false">规则四终止</button>
     <span class="chart-help">滚轮/↑↓缩放 · 拖拽平移 · 双击十字星 · 悬停查看 OHLC</span>
@@ -2363,7 +2394,7 @@ for bi in begin_next ... window_end:
     <span><i class="swatch" style="background:#38bdf8"></i>底特征序列</span>
     <span><i class="swatch" style="background:#ef4444"></i>买点</span>
     <span><i class="swatch" style="background:#22c55e"></i>卖点</span>
-    <span><i class="swatch" style="background:transparent;border:1.6px dashed #8b5cf6"></i>场景中枢（笔中枢场景命中段）</span>
+    <span><i class="swatch" style="background:transparent;border:1.8px solid #8b5cf6"></i><i class="swatch" style="background:transparent;border:1.6px dashed #8b5cf6"></i>场景中枢（前三笔实线，后续虚线）</span>
     <span><i class="swatch" style="background:transparent;border-top:1.8px dashed #ef4444"></i>规则四终止（反向笔突破中枢边界）</span>
   </div>
 </div>
@@ -2399,6 +2430,10 @@ var maLayer = document.getElementById('ma-layer-{chart_id}');
 var maToggle = document.getElementById('ma-toggle-{chart_id}');
 var eigenLayer = document.getElementById('eigen-layer-{chart_id}');
 var eigenToggle = document.getElementById('eigen-toggle-{chart_id}');
+var biZsLayer = document.getElementById('bi-zs-layer-{chart_id}');
+var biZsToggle = document.getElementById('bi-zs-toggle-{chart_id}');
+var segZsLayer = document.getElementById('seg-zs-layer-{chart_id}');
+var segZsToggle = document.getElementById('seg-zs-toggle-{chart_id}');
 var sceneZsLayer = document.getElementById('scene-zs-layer-{chart_id}');
 var sceneZsToggle = document.getElementById('scene-zs-toggle-{chart_id}');
 var zsBreakoutLayer = document.getElementById('zs-breakout-layer-{chart_id}');
@@ -2882,8 +2917,13 @@ function resetPenLineVisual(line) {{
 function clearSceneZsHighlight() {{
   panelRoot.querySelectorAll('.chart-scene-zs.focused-scene-zs').forEach(function(x) {{
     x.classList.remove('focused-scene-zs');
-    x.setAttribute('stroke-width', '1.6');
-    x.setAttribute('opacity', '.95');
+    if (x.classList.contains('chart-scene-zs-form')) {{
+      x.setAttribute('stroke-width', '1.8');
+      x.setAttribute('opacity', '.98');
+    }} else {{
+      x.setAttribute('stroke-width', '1.6');
+      x.setAttribute('opacity', '.95');
+    }}
   }});
   panelRoot.querySelectorAll('.chart-pen-line.scene-zs-pen').forEach(function(x) {{
     x.classList.remove('scene-zs-pen');
@@ -3226,6 +3266,16 @@ eigenToggle.addEventListener('click', function() {{
   var active = eigenLayer.classList.toggle('active');
   eigenToggle.classList.toggle('active', active);
   eigenToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
+}});
+biZsToggle.addEventListener('click', function() {{
+  var active = biZsLayer.classList.toggle('active');
+  biZsToggle.classList.toggle('active', active);
+  biZsToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
+}});
+segZsToggle.addEventListener('click', function() {{
+  var active = segZsLayer.classList.toggle('active');
+  segZsToggle.classList.toggle('active', active);
+  segZsToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
 }});
 sceneZsToggle.addEventListener('click', function() {{
   var active = sceneZsLayer.classList.toggle('active');
