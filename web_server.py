@@ -29,7 +29,7 @@ logging.basicConfig(
 )
 
 DEFAULT_CODE = "SH000001"
-DEFAULT_DAYS = 30
+DEFAULT_DAYS = 120
 DEFAULT_CHART_TIMEOUT_SECONDS = 20
 DEFAULT_LV = "1m"
 DEFAULT_SOURCE = "tdx_history"
@@ -895,9 +895,9 @@ iframe {{
           <option value="0">全部</option>
           <option value="5">5天</option>
           <option value="20">20天</option>
-          <option value="30" selected>30天</option>
+          <option value="30">30天</option>
           <option value="60">60天</option>
-          <option value="120">120天</option>
+          <option value="120" selected>120天</option>
           <option value="250">250天</option>
         </select>
         <select id="source-select" name="source">
