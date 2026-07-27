@@ -1993,63 +1993,74 @@ for bi in begin_next ... window_end:
         def collect_scene_zs_rects(seg_list, bi_meta_list) -> List[Dict[str, Any]]:
             rects: List[Dict[str, Any]] = []
             for seg_idx, seg in enumerate(seg_list):
-                scene_zs_list = (
-                    getattr(seg, "zs_scene_zs", None)
-                    or getattr(seg, "zs_scene_zs_list", None)
-                    or []
-                )
-                for k, zs in enumerate(scene_zs_list):
-                    fi = int(getattr(zs, "first_bi_idx", -1))
-                    li = int(getattr(zs, "last_bi_idx", -1))
-                    if fi < 0 or li < 0 or fi >= len(bi_meta_list) or li >= len(bi_meta_list):
-                        continue
-                    if fi + 2 > li or fi + 2 >= len(bi_meta_list):
-                        continue
-                    x_begin = int(bi_meta_list[fi].begin_x)
-                    x_end = int(bi_meta_list[li].end_x)
-                    form_last = min(li, fi + 2)
-                    form_end = int(bi_meta_list[form_last].end_x)
-                    form_bis = bi_meta_list[fi:fi + 3]
-                    low = max(min(float(bi.begin_y), float(bi.end_y)) for bi in form_bis)
-                    high = min(max(float(bi.begin_y), float(bi.end_y)) for bi in form_bis)
-                    if not high > low:
-                        low = float(getattr(zs, "low", 0))
-                        high = float(getattr(zs, "high", 0))
-                    rect = {
-                        "k": len(rects),
-                        "seg": seg_idx + 1,
-                        "x": round(left + x_begin * bar_w, 1),
-                        "y": round(yp(high), 1),
-                        "w": round(max(bar_w, (x_end - x_begin + 1) * bar_w), 1),
-                        "h": round(max(1, yp(low) - yp(high)), 1),
-                        "low": low,
-                        "high": high,
-                        "formRanges": [
-                            [
-                                round(min(float(bi.begin_y), float(bi.end_y)), 2),
-                                round(max(float(bi.begin_y), float(bi.end_y)), 2),
-                            ]
-                            for bi in form_bis
-                        ],
-                        "first": fi,
-                        "last": li,
-                        "firstRow": fi + 1,
-                        "lastRow": li + 1,
-                        "cnt": int(getattr(zs, "bi_count", 0)),
-                        "formX": round(left + x_begin * bar_w, 1),
-                        "formW": round(max(bar_w, (form_end - x_begin + 1) * bar_w), 1),
-                        "formLast": form_last,
-                        "formLastRow": form_last + 1,
-                    }
-                    if li > form_last:
-                        ext_begin = int(bi_meta_list[form_last + 1].begin_x)
-                        rect.update({
-                            "extX": round(left + ext_begin * bar_w, 1),
-                            "extW": round(max(bar_w, (x_end - ext_begin + 1) * bar_w), 1),
-                            "extFirst": form_last + 1,
-                            "extFirstRow": form_last + 2,
-                        })
-                    rects.append(rect)
+                scene_sources = [
+                    (
+                        getattr(seg, "zs_scene_zs", None)
+                        or getattr(seg, "zs_scene_zs_list", None)
+                        or [],
+                        False,
+                    ),
+                    (
+                        getattr(seg, "zs_scene_discarded_zs", None)
+                        or getattr(seg, "zs_scene_discarded_zs_list", None)
+                        or [],
+                        True,
+                    ),
+                ]
+                for scene_zs_list, discarded in scene_sources:
+                    for k, zs in enumerate(scene_zs_list):
+                        fi = int(getattr(zs, "first_bi_idx", -1))
+                        li = int(getattr(zs, "last_bi_idx", -1))
+                        if fi < 0 or li < 0 or fi >= len(bi_meta_list) or li >= len(bi_meta_list):
+                            continue
+                        if fi + 2 > li or fi + 2 >= len(bi_meta_list):
+                            continue
+                        x_begin = int(bi_meta_list[fi].begin_x)
+                        x_end = int(bi_meta_list[li].end_x)
+                        form_last = min(li, fi + 2)
+                        form_end = int(bi_meta_list[form_last].end_x)
+                        form_bis = bi_meta_list[fi:fi + 3]
+                        low = max(min(float(bi.begin_y), float(bi.end_y)) for bi in form_bis)
+                        high = min(max(float(bi.begin_y), float(bi.end_y)) for bi in form_bis)
+                        if not high > low:
+                            low = float(getattr(zs, "low", 0))
+                            high = float(getattr(zs, "high", 0))
+                        rect = {
+                            "k": len(rects),
+                            "seg": seg_idx + 1,
+                            "x": round(left + x_begin * bar_w, 1),
+                            "y": round(yp(high), 1),
+                            "w": round(max(bar_w, (x_end - x_begin + 1) * bar_w), 1),
+                            "h": round(max(1, yp(low) - yp(high)), 1),
+                            "low": low,
+                            "high": high,
+                            "discarded": discarded,
+                            "formRanges": [
+                                [
+                                    round(min(float(bi.begin_y), float(bi.end_y)), 2),
+                                    round(max(float(bi.begin_y), float(bi.end_y)), 2),
+                                ]
+                                for bi in form_bis
+                            ],
+                            "first": fi,
+                            "last": li,
+                            "firstRow": fi + 1,
+                            "lastRow": li + 1,
+                            "cnt": int(getattr(zs, "bi_count", 0)),
+                            "formX": round(left + x_begin * bar_w, 1),
+                            "formW": round(max(bar_w, (form_end - x_begin + 1) * bar_w), 1),
+                            "formLast": form_last,
+                            "formLastRow": form_last + 1,
+                        }
+                        if li > form_last:
+                            ext_begin = int(bi_meta_list[form_last + 1].begin_x)
+                            rect.update({
+                                "extX": round(left + ext_begin * bar_w, 1),
+                                "extW": round(max(bar_w, (x_end - ext_begin + 1) * bar_w), 1),
+                                "extFirst": form_last + 1,
+                                "extFirstRow": form_last + 2,
+                            })
+                        rects.append(rect)
             return rects
 
         scene_zs_rects = collect_scene_zs_rects(meta.seg_list, meta.bi_list)
@@ -2212,31 +2223,35 @@ for bi in begin_next ... window_end:
 
         svg.append(f'<g id="scene-zs-layer-{chart_id}" class="scene-zs-layer">')
         for zs in scene_zs_rects:
+            scene_color = "#94a3b8" if zs["discarded"] else "#8b5cf6"
+            scene_kind = "舍弃场景笔中枢" if zs["discarded"] else "场景笔中枢"
+            scene_note = "超过8笔，不启用单笔端点更新" if zs["discarded"] else "启用同向更极端笔端点替代"
             scene_title = (
-                f'场景笔中枢：第{zs["firstRow"]}笔-第{zs["lastRow"]}笔，'
+                f'{scene_kind}：第{zs["firstRow"]}笔-第{zs["lastRow"]}笔，'
                 f'前三笔成中枢闭环至第{zs["formLastRow"]}笔，'
                 f'{zs["cnt"]}笔，区间 {_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}；'
+                f'{scene_note}；'
                 f'前三笔区间 {zs["formRanges"]}'
             )
             svg.append(
                 f'<rect class="chart-scene-zs-hit" data-scene-zs="{zs["k"]}" data-first-pen="{zs["firstRow"]}" data-last-pen="{zs["lastRow"]}" '
                 f'x="{zs["x"]:.1f}" y="{zs["y"]:.1f}" width="{zs["w"]:.1f}" height="{zs["h"]:.1f}" '
-                f'fill="#8b5cf6" fill-opacity=".001" stroke="none"><title>{html.escape(scene_title)}</title></rect>'
+                f'fill="{scene_color}" fill-opacity=".001" stroke="none"><title>{html.escape(scene_title)}</title></rect>'
             )
             svg.append(
                 f'<rect class="chart-scene-zs chart-scene-zs-form" data-scene-zs="{zs["k"]}" data-first-pen="{zs["firstRow"]}" data-last-pen="{zs["lastRow"]}" '
                 f'x="{zs["formX"]:.1f}" y="{zs["y"]:.1f}" width="{zs["formW"]:.1f}" height="{zs["h"]:.1f}" '
-                f'fill="none" stroke="#8b5cf6" stroke-width="1.8" opacity=".98" rx="1"><title>{html.escape(scene_title)}</title></rect>'
+                f'fill="none" stroke="{scene_color}" stroke-width="1.8" opacity=".98" rx="1"><title>{html.escape(scene_title)}</title></rect>'
             )
             if "extX" in zs:
                 svg.append(
                     f'<rect class="chart-scene-zs chart-scene-zs-ext" data-scene-zs="{zs["k"]}" data-first-pen="{zs["extFirstRow"]}" data-last-pen="{zs["lastRow"]}" '
                     f'x="{zs["extX"]:.1f}" y="{zs["y"]:.1f}" width="{zs["extW"]:.1f}" height="{zs["h"]:.1f}" '
-                    f'fill="none" stroke="#8b5cf6" stroke-width="1.6" stroke-dasharray="6 4" opacity=".95" rx="1"><title>{html.escape(scene_title)}</title></rect>'
+                    f'fill="none" stroke="{scene_color}" stroke-width="1.6" stroke-dasharray="6 4" opacity=".95" rx="1"><title>{html.escape(scene_title)}</title></rect>'
                 )
             svg.append(
                 f'<text class="chart-note-label" x="{zs["x"] + 4:.1f}" y="{zs["y"] + zs["h"] + 12:.1f}" '
-                f'fill="#8b5cf6" font-size="10">场景笔中枢[{_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}] {zs["cnt"]}笔</text>'
+                f'fill="{scene_color}" font-size="10">{scene_kind}[{_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}] {zs["cnt"]}笔</text>'
             )
         svg.append("</g>")
 
@@ -2409,6 +2424,7 @@ for bi in begin_next ... window_end:
     <span><i class="swatch" style="background:#ef4444"></i>买点</span>
     <span><i class="swatch" style="background:#22c55e"></i>卖点</span>
     <span><i class="swatch" style="background:transparent;border:1.8px solid #8b5cf6"></i><i class="swatch" style="background:transparent;border:1.6px dashed #8b5cf6"></i>场景中枢（前三笔实线，后续虚线）</span>
+    <span><i class="swatch" style="background:transparent;border:1.6px dashed #94a3b8"></i>舍弃场景中枢（超过8笔）</span>
     <span><i class="swatch" style="background:transparent;border-top:1.8px dashed #ef4444"></i>规则四终止（反向笔突破中枢边界）</span>
   </div>
 </div>

@@ -20,6 +20,8 @@ class BiZSInfo:
 class ZSSceneResult:
     zs_list: List[BiZSInfo]
     endpoint_bi_idx: int
+    is_valid: bool = True
+    invalid_reason: str = ""
 
 
 @dataclass
@@ -43,9 +45,10 @@ def detect_zs_scene(bi_list, begin_idx: int, end_idx: int, seg_dir) -> Optional[
 
     命中条件：
       1. 至少 1 个笔中枢（连续 3 笔重叠区间存在）；
-      2. 每个笔中枢笔数 <= 8（不含破坏笔，破坏笔算下一中枢的第一笔）；
+      2. 每个用于端点替代的笔中枢笔数 <= 8；
       3. 相邻两中枢单调不重叠：向上段 a.ZG < b.ZD，向下段 a.ZD > b.ZG。
-    未命中返回 None。
+    未发现笔中枢返回 None。发现了超过 8 笔的笔中枢时返回 is_valid=False，
+    调用方应保留该中枢用于灰色绘制，但不能用它启用同向单笔端点替代。
 
     bi_list 元素只需提供 .dir(BI_DIR)、._high()、._low()。
     """
@@ -100,17 +103,6 @@ def detect_zs_scene(bi_list, begin_idx: int, end_idx: int, seg_dir) -> Optional[
 
     if not zs_list:
         return None
-    if any(z.bi_count > 8 for z in zs_list):
-        return None
-    # 相邻中枢须单调不重叠：向上段前低后高(a.ZG < b.ZD)，向下段前高后低(a.ZD > b.ZG)
-    for a, b in zip(zs_list, zs_list[1:]):
-        if is_up:
-            if not (a.high < b.low):
-                return None
-        else:
-            if not (a.low > b.high):
-                return None
-
     endpoint = begin_idx
     ext = None
     for k in range(begin_idx, end_idx + 1):
@@ -121,6 +113,23 @@ def detect_zs_scene(bi_list, begin_idx: int, end_idx: int, seg_dir) -> Optional[
         if ext is None or (is_up and v > ext) or (not is_up and v < ext):
             ext = v
             endpoint = k
+
+    if any(z.bi_count > 8 for z in zs_list):
+        return ZSSceneResult(
+            zs_list=zs_list,
+            endpoint_bi_idx=endpoint,
+            is_valid=False,
+            invalid_reason="over8",
+        )
+    # 相邻中枢须单调不重叠：向上段前低后高(a.ZG < b.ZD)，向下段前高后低(a.ZD > b.ZG)
+    for a, b in zip(zs_list, zs_list[1:]):
+        if is_up:
+            if not (a.high < b.low):
+                return None
+        else:
+            if not (a.low > b.high):
+                return None
+
     return ZSSceneResult(zs_list=zs_list, endpoint_bi_idx=endpoint)
 
 

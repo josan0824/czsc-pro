@@ -81,6 +81,7 @@ class CEigenFXV2(CEigenFX):
         self.v2_notes: List[str] = []
         self.v2_final_all_sure: Optional[bool] = None
         self.zs_scene_result = None
+        self.zs_scene_discarded_result = None
         self.zs_breakout_hit = False
         self.zs_breakout_info = None  # {breakout_bi_idx, zs, bound, bound_kind}
         self.seg_start_idx: Optional[int] = None  # 本候选段真实起点(上一段end_bi.idx+1)
@@ -333,7 +334,7 @@ class CEigenFXV2(CEigenFX):
 
         # 反向线段寻找：优先中枢场景，其次特征分型
         zs_rev = detect_zs_scene(bi_list, bk.breakout_bi_idx, len(bi_list) - 1, reverse_dir)
-        if zs_rev is not None:
+        if zs_rev is not None and getattr(zs_rev, "is_valid", True):
             confirm_kind = f"反向中枢场景（{len(zs_rev.zs_list)}个笔中枢）"
         else:
             rev_events = self._collect_fx_events(bi_list, reverse_dir, bk.breakout_bi_idx)
@@ -427,13 +428,26 @@ class CEigenFXV2(CEigenFX):
                 # last_endpoint 取到绝对极值时可能跨过中间反弹/反转，使整体 detect_zs_scene
                 # 判 None。改为找最长合法前缀：从 last_endpoint 递减，取第一个命中的 end。
                 zs_res = None
+                discarded_res = None
                 valid_end = last_endpoint_bi_idx
                 for k in range(last_endpoint_bi_idx, seg_start_idx, -1):
                     r = detect_zs_scene(bi_list, seg_start_idx, k, self.dir)
+                    if r is not None and not getattr(r, "is_valid", True):
+                        if getattr(r, "invalid_reason", "") == "over8" and discarded_res is None:
+                            discarded_res = r
+                        break
                     if r is not None:
                         zs_res = r
                         valid_end = k
                         break
+                if discarded_res is not None:
+                    self.zs_scene_discarded_result = discarded_res
+                    over8 = [z for z in discarded_res.zs_list if z.bi_count > 8]
+                    self.v2_notes.append(
+                        f"笔中枢场景舍弃：自第{seg_start_idx + 1}笔至第{discarded_res.endpoint_bi_idx + 1}笔，"
+                        f"存在超过8笔的笔中枢（{[z.bi_count for z in over8]}笔）；"
+                        "不启用同向单笔端点替代，继续按特征序列分型划分。"
+                    )
                 if zs_res is not None:
                     same_endpoint_events = [e for e in raw_same_endpoint if e.peak_bi_idx <= valid_end]
                     self.zs_scene_result = zs_res
@@ -671,6 +685,12 @@ class CSegListChanV2(CSegListChan):
             if getattr(fx_eigen, "zs_scene_result", None) is not None:
                 self.lst[-1].is_zs_scene = True
                 self.lst[-1].zs_scene_zs_list = list(fx_eigen.zs_scene_result.zs_list)
+            if getattr(fx_eigen, "zs_scene_discarded_result", None) is not None:
+                self.lst[-1].zs_scene_discarded_zs_list = [
+                    zs for zs in fx_eigen.zs_scene_discarded_result.zs_list
+                    if zs.bi_count > 8
+                    and self.lst[-1].start_bi.idx <= zs.first_bi_idx <= self.lst[-1].end_bi.idx
+                ]
             if getattr(fx_eigen, "zs_breakout_hit", False):
                 self.lst[-1].is_zs_breakout = True
                 self.lst[-1].zs_breakout_info = getattr(fx_eigen, "zs_breakout_info", None)

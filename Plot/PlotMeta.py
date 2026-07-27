@@ -71,6 +71,7 @@ class CSeg_meta:
         self.extra_notes = list(getattr(seg, "v2_notes", []))
         self.is_zs_scene = bool(getattr(seg, "is_zs_scene", False))
         self.zs_scene_zs = list(getattr(seg, "zs_scene_zs_list", []) or [])
+        self.zs_scene_discarded_zs = list(getattr(seg, "zs_scene_discarded_zs_list", []) or [])
         self.is_zs_breakout = bool(getattr(seg, "is_zs_breakout", False))
         self.zs_breakout_info = getattr(seg, "zs_breakout_info", None)
 

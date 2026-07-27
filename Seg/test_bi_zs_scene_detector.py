@@ -71,7 +71,7 @@ class TestDetectZSScene(unittest.TestCase):
         self.assertIsNone(detect_zs_scene(seq, 0, 4, BI_DIR.UP))
 
     def test_zs_over_8_pen_miss(self):
-        # 单中枢笔数 = 9（idx1..idx9）-> 不命中
+        # 单中枢笔数 = 9（idx1..idx9）-> 发现中枢但不可用于单笔端点替代
         seq = _seq([
             (True,  0, 10),  # idx0 S1
             (False, 5, 8),   # idx1 X1 进入
@@ -84,7 +84,11 @@ class TestDetectZSScene(unittest.TestCase):
             (True,  6, 11),  # idx8
             (False, 6, 9),   # idx9  bi_count=9
         ])
-        self.assertIsNone(detect_zs_scene(seq, 0, 9, BI_DIR.UP))
+        res = detect_zs_scene(seq, 0, 9, BI_DIR.UP)
+        self.assertIsNotNone(res)
+        self.assertFalse(res.is_valid)
+        self.assertEqual(res.invalid_reason, "over8")
+        self.assertEqual(res.zs_list[0].bi_count, 9)
 
     def test_zs_exactly_8_pen_hit(self):
         # 单中枢笔数 = 8（idx1..idx8），未闭合，<=8 -> 命中
