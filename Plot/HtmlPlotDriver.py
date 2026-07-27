@@ -2003,21 +2003,34 @@ for bi in begin_next ... window_end:
                     li = int(getattr(zs, "last_bi_idx", -1))
                     if fi < 0 or li < 0 or fi >= len(bi_meta_list) or li >= len(bi_meta_list):
                         continue
+                    if fi + 2 > li or fi + 2 >= len(bi_meta_list):
+                        continue
                     x_begin = int(bi_meta_list[fi].begin_x)
                     x_end = int(bi_meta_list[li].end_x)
                     form_last = min(li, fi + 2)
                     form_end = int(bi_meta_list[form_last].end_x)
-                    low = float(getattr(zs, "low", 0))
-                    high = float(getattr(zs, "high", 0))
+                    form_bis = bi_meta_list[fi:fi + 3]
+                    low = max(min(float(bi.begin_y), float(bi.end_y)) for bi in form_bis)
+                    high = min(max(float(bi.begin_y), float(bi.end_y)) for bi in form_bis)
+                    if not high > low:
+                        low = float(getattr(zs, "low", 0))
+                        high = float(getattr(zs, "high", 0))
                     rect = {
                         "k": len(rects),
                         "seg": seg_idx + 1,
                         "x": round(left + x_begin * bar_w, 1),
                         "y": round(yp(high), 1),
                         "w": round(max(bar_w, (x_end - x_begin + 1) * bar_w), 1),
-                        "h": round(max(5, yp(low) - yp(high)), 1),
+                        "h": round(max(1, yp(low) - yp(high)), 1),
                         "low": low,
                         "high": high,
+                        "formRanges": [
+                            [
+                                round(min(float(bi.begin_y), float(bi.end_y)), 2),
+                                round(max(float(bi.begin_y), float(bi.end_y)), 2),
+                            ]
+                            for bi in form_bis
+                        ],
                         "first": fi,
                         "last": li,
                         "firstRow": fi + 1,
@@ -2202,7 +2215,8 @@ for bi in begin_next ... window_end:
             scene_title = (
                 f'场景笔中枢：第{zs["firstRow"]}笔-第{zs["lastRow"]}笔，'
                 f'前三笔成中枢闭环至第{zs["formLastRow"]}笔，'
-                f'{zs["cnt"]}笔，区间 {_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}'
+                f'{zs["cnt"]}笔，区间 {_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}；'
+                f'前三笔区间 {zs["formRanges"]}'
             )
             svg.append(
                 f'<rect class="chart-scene-zs-hit" data-scene-zs="{zs["k"]}" data-first-pen="{zs["firstRow"]}" data-last-pen="{zs["lastRow"]}" '

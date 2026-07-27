@@ -139,6 +139,13 @@ class TestSegV2ZSSceneRealDataRegression(unittest.TestCase):
         hits = [s for s in seg_on if getattr(s, "is_zs_scene", False)]
         self.assertTrue(notes or hits)
 
+    def test_scene_zs_stays_inside_final_segment(self):
+        chan_on = self._run(zs_scene=True)
+        seg_on = list(chan_on.kl_datas[KL_TYPE.K_1M].seg_list)
+        for seg in seg_on:
+            for zs in getattr(seg, "zs_scene_zs_list", []) or []:
+                self.assertLessEqual(zs.last_bi_idx, seg.end_bi.idx)
+
 
 if __name__ == "__main__":
     unittest.main()

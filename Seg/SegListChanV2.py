@@ -361,6 +361,16 @@ class CEigenFXV2(CEigenFX):
             "bound": bound,
             "bound_kind": bound_kind,
         }
+        # 规则四确认后，当前段端点定格在突破笔之前；此前规则三检测到的
+        # 候选场景中枢若越过最终端点，属于被否决的继续延伸路径，不能再
+        # 挂到当前段上绘制。仍在线段内部的场景中枢保留。
+        if self.zs_scene_result is not None:
+            self.zs_scene_result.zs_list = [
+                zs for zs in self.zs_scene_result.zs_list
+                if zs.last_bi_idx <= endpoint
+            ]
+            if not self.zs_scene_result.zs_list:
+                self.zs_scene_result = None
         bound_label = "ZG(上限)" if not is_up else "ZD(下限)"
         self.v2_notes.append(
             f"规则四：第{bk.breakout_bi_idx + 1}笔反向笔突破上一中枢{bound_label}；"

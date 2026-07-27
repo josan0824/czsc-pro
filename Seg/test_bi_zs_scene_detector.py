@@ -156,6 +156,22 @@ class TestDetectZSScene(unittest.TestCase):
         self.assertEqual(res.zs_list[0].bi_count, 4)
         self.assertEqual(res.endpoint_bi_idx, 4)  # S3 最高
 
+    def test_zs_overlap_low_uses_highest_low_not_peak_low(self):
+        # 向上段前三笔 X1/S2/X2 的重叠下沿应取最高低点，即第三笔 X2 的低点；
+        # 不能取三笔外围最低点。
+        seq = _seq([
+            (True,  0, 10),  # S1
+            (False, 2, 9),   # X1
+            (True,  2, 12),  # S2
+            (False, 6, 11),  # X2，重叠下沿应为 6
+            (True,  6, 15),  # S3
+        ])
+        res = detect_zs_scene(seq, 0, 4, BI_DIR.UP)
+        self.assertIsNotNone(res)
+        self.assertEqual(res.zs_list[0].low, 6)
+        self.assertEqual(res.zs_list[0].peak_low, 2)
+        self.assertEqual(res.zs_list[0].high, 9)
+
     def test_down_segment_mirror(self):
         # 向下段对称：中枢从第一根向上笔起算，终点取最低向下笔
         seq = _seq_down([
