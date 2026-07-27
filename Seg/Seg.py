@@ -44,6 +44,7 @@ class CSeg(Generic[LINE_TYPE]):
         self.ele_inside_is_sure = False
 
         self.is_zs_scene = False  # 命中笔中枢场景（同向更极端笔端点替代）的线段
+        self.zs_scene_zs_list = []  # 笔中枢场景命中的中枢明细
         self.is_zs_breakout = False  # 规则四终止：反向笔突破上一中枢边界确认的线段
         self.zs_breakout_info = None  # 规则四信息：{breakout_bi_idx, zs, bound, bound_kind}
 

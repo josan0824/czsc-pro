@@ -340,6 +340,10 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
 .kline-layer.active {{ display:inline; }}
 .eigen-layer {{ display:none; }}
 .eigen-layer.active {{ display:inline; }}
+.scene-zs-layer {{ display:none; }}
+.scene-zs-layer.active {{ display:inline; }}
+.zs-breakout-layer {{ display:none; }}
+.zs-breakout-layer.active {{ display:inline; }}
 .fractal-detail-layer {{ display:none; }}
 .fractal-detail-layer.active {{ display:inline; }}
 .chart-wrap.is-panning .fractal-detail-layer,
@@ -359,14 +363,18 @@ h1 {{ margin:0; font-size:20px; line-height:1.25; font-weight:700; }}
 .chan-chart-svg .chart-pen-hit,
 .chan-chart-svg .chart-seg-line,
 .chan-chart-svg .chart-seg-hit,
+.chan-chart-svg .chart-scene-zs,
+.chan-chart-svg .chart-scene-zs-hit,
 .chan-chart-svg .chart-fractal-marker {{ pointer-events:all; }}
-.chart-pen-line,.chart-seg-line {{ cursor:pointer; }}
+.chart-pen-line,.chart-seg-line,.chart-scene-zs,.chart-scene-zs-hit {{ cursor:pointer; }}
 .fractal-range-box {{ pointer-events:none; }}
 .fractal-ref-box {{ pointer-events:none; }}
 .chart-fractal-marker.fx-ref-active {{ filter:drop-shadow(0 0 4px rgba(245,158,11,.95)); }}
 .chart-price-label.fx-ref-active {{ fill:#fef08a; font-weight:700; }}
 .chart-fractal-marker:hover {{ filter:drop-shadow(0 0 3px rgba(247,144,9,.85)); }}
 .chart-seg-line.focused-seg {{ filter:drop-shadow(0 0 5px rgba(132,204,22,.9)); }}
+.chart-scene-zs.focused-scene-zs {{ filter:drop-shadow(0 0 5px rgba(167,139,250,.95)); }}
+.chart-pen-line.scene-zs-pen {{ filter:drop-shadow(0 0 6px rgba(251,191,36,.95)); }}
 .tooltip {{
   position:absolute; z-index:5; display:none; min-width:190px; padding:8px 10px;
   border:1px solid #344054; border-radius:4px; background:rgba(15,23,42,.96);
@@ -1980,8 +1988,13 @@ for bi in begin_next ... window_end:
 
         def collect_scene_zs_rects(seg_list, bi_meta_list) -> List[Dict[str, Any]]:
             rects: List[Dict[str, Any]] = []
-            for seg in seg_list:
-                for k, zs in enumerate(getattr(seg, "zs_scene_zs", []) or []):
+            for seg_idx, seg in enumerate(seg_list):
+                scene_zs_list = (
+                    getattr(seg, "zs_scene_zs", None)
+                    or getattr(seg, "zs_scene_zs_list", None)
+                    or []
+                )
+                for k, zs in enumerate(scene_zs_list):
                     fi = int(getattr(zs, "first_bi_idx", -1))
                     li = int(getattr(zs, "last_bi_idx", -1))
                     if fi < 0 or li < 0 or fi >= len(bi_meta_list) or li >= len(bi_meta_list):
@@ -1991,7 +2004,8 @@ for bi in begin_next ... window_end:
                     low = float(getattr(zs, "low", 0))
                     high = float(getattr(zs, "high", 0))
                     rects.append({
-                        "k": k,
+                        "k": len(rects),
+                        "seg": seg_idx + 1,
                         "x": round(left + x_begin * bar_w, 1),
                         "y": round(yp(high), 1),
                         "w": round(max(bar_w, (x_end - x_begin + 1) * bar_w), 1),
@@ -2000,6 +2014,8 @@ for bi in begin_next ... window_end:
                         "high": high,
                         "first": fi,
                         "last": li,
+                        "firstRow": fi + 1,
+                        "lastRow": li + 1,
                         "cnt": int(getattr(zs, "bi_count", 0)),
                     })
             return rects
@@ -2159,16 +2175,29 @@ for bi in begin_next ... window_end:
                     f'ZS {_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}</text>'
                 )
 
+        svg.append(f'<g id="scene-zs-layer-{chart_id}" class="scene-zs-layer">')
         for zs in scene_zs_rects:
+            scene_title = (
+                f'场景笔中枢：第{zs["firstRow"]}笔-第{zs["lastRow"]}笔，'
+                f'{zs["cnt"]}笔，区间 {_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}'
+            )
             svg.append(
-                f'<rect class="chart-scene-zs" x="{zs["x"]:.1f}" y="{zs["y"]:.1f}" width="{zs["w"]:.1f}" height="{zs["h"]:.1f}" '
-                f'fill="none" stroke="#8b5cf6" stroke-width="1.6" stroke-dasharray="6 4" opacity=".95" rx="1"/>'
+                f'<rect class="chart-scene-zs-hit" data-scene-zs="{zs["k"]}" data-first-pen="{zs["firstRow"]}" data-last-pen="{zs["lastRow"]}" '
+                f'x="{zs["x"]:.1f}" y="{zs["y"]:.1f}" width="{zs["w"]:.1f}" height="{zs["h"]:.1f}" '
+                f'fill="#8b5cf6" fill-opacity=".001" stroke="none"><title>{html.escape(scene_title)}</title></rect>'
+            )
+            svg.append(
+                f'<rect class="chart-scene-zs" data-scene-zs="{zs["k"]}" data-first-pen="{zs["firstRow"]}" data-last-pen="{zs["lastRow"]}" '
+                f'x="{zs["x"]:.1f}" y="{zs["y"]:.1f}" width="{zs["w"]:.1f}" height="{zs["h"]:.1f}" '
+                f'fill="none" stroke="#8b5cf6" stroke-width="1.6" stroke-dasharray="6 4" opacity=".95" rx="1"><title>{html.escape(scene_title)}</title></rect>'
             )
             svg.append(
                 f'<text class="chart-note-label" x="{zs["x"] + 4:.1f}" y="{zs["y"] + zs["h"] + 12:.1f}" '
-                f'fill="#8b5cf6" font-size="10">笔中枢[{_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}] {zs["cnt"]}笔</text>'
+                f'fill="#8b5cf6" font-size="10">场景笔中枢[{_fmt_num(zs["low"])}-{_fmt_num(zs["high"])}] {zs["cnt"]}笔</text>'
             )
+        svg.append("</g>")
 
+        svg.append(f'<g id="zs-breakout-layer-{chart_id}" class="zs-breakout-layer">')
         for m in breakout_marks:
             svg.append(
                 f'<line class="chart-zs-breakout" x1="{m["x0"]:.1f}" y1="{m["y"]:.1f}" x2="{m["x1"]:.1f}" y2="{m["y"]:.1f}" '
@@ -2182,6 +2211,7 @@ for bi in begin_next ... window_end:
                 f'<text class="chart-note-label" x="{m["x1"] - 4:.1f}" y="{m["y"] - 5:.1f}" '
                 f'fill="#ef4444" font-size="10" text-anchor="end">规则四突破{m["kind"]}={_fmt_num(m["bound"])}</text>'
             )
+        svg.append("</g>")
 
         for pen in pens:
             dash = "" if pen["sure"] else ' stroke-dasharray="5 4"'
@@ -2305,6 +2335,8 @@ for bi in begin_next ... window_end:
     <button id="kline-toggle-{chart_id}" class="kline-toggle active" title="显示/隐藏K线" type="button" aria-pressed="true">K线</button>
     <button id="ma-toggle-{chart_id}" class="ma-toggle" title="显示/隐藏均线" type="button" aria-pressed="false">均线</button>
     <button id="eigen-toggle-{chart_id}" class="eigen-toggle" title="显示/隐藏线段特征序列" type="button" aria-pressed="false">特征</button>
+    <button id="scene-zs-toggle-{chart_id}" class="scene-zs-toggle" title="显示/隐藏场景笔中枢范围" type="button" aria-pressed="false">场景笔中枢</button>
+    <button id="zs-breakout-toggle-{chart_id}" class="zs-breakout-toggle" title="显示/隐藏规则四终止标记" type="button" aria-pressed="false">规则四终止</button>
     <span class="chart-help">滚轮/↑↓缩放 · 拖拽平移 · 双击十字星 · 悬停查看 OHLC</span>
   </div>
   <div id="wrap-{chart_id}" class="chart-wrap" tabindex="0" aria-label="{html.escape(label)} K线图">
@@ -2367,6 +2399,10 @@ var maLayer = document.getElementById('ma-layer-{chart_id}');
 var maToggle = document.getElementById('ma-toggle-{chart_id}');
 var eigenLayer = document.getElementById('eigen-layer-{chart_id}');
 var eigenToggle = document.getElementById('eigen-toggle-{chart_id}');
+var sceneZsLayer = document.getElementById('scene-zs-layer-{chart_id}');
+var sceneZsToggle = document.getElementById('scene-zs-toggle-{chart_id}');
+var zsBreakoutLayer = document.getElementById('zs-breakout-layer-{chart_id}');
+var zsBreakoutToggle = document.getElementById('zs-breakout-toggle-{chart_id}');
 var fractalDetailLayer = document.getElementById('fractal-detail-layer-{chart_id}');
 var fractalRangeLayer = document.getElementById('fractal-range-layer-{chart_id}');
 var fractalRefLayer = document.getElementById('fractal-ref-layer-{chart_id}');
@@ -2803,9 +2839,11 @@ function highlightPenRow(rowId, revealTable) {{
   var tableWrap = document.getElementById('pen-table-{chart_id}');
   if (!row && !tableWrap) return;
   panelRoot.querySelectorAll('tr.focused-row').forEach(function(x) {{ x.classList.remove('focused-row'); }});
+  clearSceneZsHighlight();
   clearSegHighlight();
   panelRoot.querySelectorAll('.chart-pen-line.focused-pen').forEach(function(x) {{
     x.classList.remove('focused-pen');
+    x.setAttribute('stroke', '#cbd5e1');
     x.setAttribute('stroke-width', '1.25');
     x.setAttribute('opacity', '.72');
   }});
@@ -2813,6 +2851,7 @@ function highlightPenRow(rowId, revealTable) {{
   var penLine = panelRoot.querySelector('.chart-pen-line[data-pen-row="' + rowId + '"]');
   if (penLine) {{
     penLine.classList.add('focused-pen');
+    penLine.setAttribute('stroke', '#cbd5e1');
     penLine.setAttribute('stroke-width', '2.6');
     penLine.setAttribute('opacity', '1');
   }}
@@ -2828,16 +2867,71 @@ function clearSegHighlight() {{
     x.setAttribute('opacity', '.72');
   }});
 }}
+function resetPenLineVisual(line) {{
+  if (!line) return;
+  if (line.classList.contains('focused-pen')) {{
+    line.setAttribute('stroke', '#cbd5e1');
+    line.setAttribute('stroke-width', '2.6');
+    line.setAttribute('opacity', '1');
+    return;
+  }}
+  line.setAttribute('stroke', '#cbd5e1');
+  line.setAttribute('stroke-width', '1.25');
+  line.setAttribute('opacity', '.72');
+}}
+function clearSceneZsHighlight() {{
+  panelRoot.querySelectorAll('.chart-scene-zs.focused-scene-zs').forEach(function(x) {{
+    x.classList.remove('focused-scene-zs');
+    x.setAttribute('stroke-width', '1.6');
+    x.setAttribute('opacity', '.95');
+  }});
+  panelRoot.querySelectorAll('.chart-pen-line.scene-zs-pen').forEach(function(x) {{
+    x.classList.remove('scene-zs-pen');
+    resetPenLineVisual(x);
+  }});
+}}
+function highlightSceneZs(sceneId) {{
+  var scene = data.sceneZs.find(function(item) {{ return String(item.k) === String(sceneId); }});
+  if (!scene) return;
+  if (sceneZsLayer && !sceneZsLayer.classList.contains('active')) {{
+    sceneZsLayer.classList.add('active');
+    sceneZsToggle.classList.add('active');
+    sceneZsToggle.setAttribute('aria-pressed', 'true');
+  }}
+  clearSegHighlight();
+  panelRoot.querySelectorAll('tr.focused-row').forEach(function(x) {{ x.classList.remove('focused-row'); }});
+  clearSceneZsHighlight();
+  panelRoot.querySelectorAll('.chart-scene-zs[data-scene-zs="' + sceneId + '"]').forEach(function(x) {{
+    x.classList.add('focused-scene-zs');
+    x.setAttribute('stroke-width', '2.6');
+    x.setAttribute('opacity', '1');
+  }});
+  for (var row = scene.firstRow; row <= scene.lastRow; row++) {{
+    var penLine = panelRoot.querySelector('.chart-pen-line[data-pen-row="' + row + '"]');
+    if (penLine) {{
+      penLine.classList.add('scene-zs-pen');
+      penLine.setAttribute('stroke', '#fbbf24');
+      penLine.setAttribute('stroke-width', '3.4');
+      penLine.setAttribute('opacity', '1');
+    }}
+  }}
+  var firstPen = data.pens.find(function(item) {{ return Number(item.row) === Number(scene.firstRow); }});
+  var lastPen = data.pens.find(function(item) {{ return Number(item.row) === Number(scene.lastRow); }});
+  if (firstPen && lastPen) focusRange(firstPen.begin, lastPen.end, 24);
+}}
 function highlightPenOnChart(rowId) {{
+  clearSceneZsHighlight();
   clearSegHighlight();
   panelRoot.querySelectorAll('.chart-pen-line.focused-pen').forEach(function(x) {{
     x.classList.remove('focused-pen');
+    x.setAttribute('stroke', '#cbd5e1');
     x.setAttribute('stroke-width', '1.25');
     x.setAttribute('opacity', '.72');
   }});
   var penLine = panelRoot.querySelector('.chart-pen-line[data-pen-row="' + rowId + '"]');
   if (penLine) {{
     penLine.classList.add('focused-pen');
+    penLine.setAttribute('stroke', '#cbd5e1');
     penLine.setAttribute('stroke-width', '2.6');
     penLine.setAttribute('opacity', '1');
   }}
@@ -2847,8 +2941,10 @@ function highlightSegRow(rowId) {{
   var tableWrap = document.getElementById('seg-table-{chart_id}');
   if (!row || !tableWrap) return;
   panelRoot.querySelectorAll('tr.focused-row').forEach(function(x) {{ x.classList.remove('focused-row'); }});
+  clearSceneZsHighlight();
   panelRoot.querySelectorAll('.chart-pen-line.focused-pen').forEach(function(x) {{
     x.classList.remove('focused-pen');
+    x.setAttribute('stroke', '#cbd5e1');
     x.setAttribute('stroke-width', '1.25');
     x.setAttribute('opacity', '.72');
   }});
@@ -3045,7 +3141,7 @@ wrap.addEventListener('wheel', function(e) {{
 }}, {{passive:false}});
 wrap.addEventListener('mousedown', function(e) {{
   if (e.button !== 0) return;
-  if (e.target && e.target.closest && e.target.closest('.chart-price-label,.chart-fractal-marker,.chart-pen-line,.chart-pen-hit,.chart-seg-line,.chart-seg-hit')) return;
+  if (e.target && e.target.closest && e.target.closest('.chart-price-label,.chart-fractal-marker,.chart-pen-line,.chart-pen-hit,.chart-seg-line,.chart-seg-hit,.chart-scene-zs,.chart-scene-zs-hit')) return;
   focusChart();
   isPanning = true; panStartX = e.clientX; panStartY = e.clientY; panOriginX = originX; panOriginY = originY;
   pendingPanOriginX = originX; pendingPanOriginY = originY;
@@ -3107,9 +3203,11 @@ document.getElementById('clear-{chart_id}').addEventListener('click', function()
   panelRoot.querySelectorAll('[data-fx-row].fx-ref-active').forEach(function(node) {{
     node.classList.remove('fx-ref-active');
   }});
+  clearSceneZsHighlight();
   clearSegHighlight();
   panelRoot.querySelectorAll('.chart-pen-line.focused-pen').forEach(function(x) {{
     x.classList.remove('focused-pen');
+    x.setAttribute('stroke', '#cbd5e1');
     x.setAttribute('stroke-width', '1.25');
     x.setAttribute('opacity', '.72');
   }});
@@ -3128,6 +3226,17 @@ eigenToggle.addEventListener('click', function() {{
   var active = eigenLayer.classList.toggle('active');
   eigenToggle.classList.toggle('active', active);
   eigenToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
+}});
+sceneZsToggle.addEventListener('click', function() {{
+  var active = sceneZsLayer.classList.toggle('active');
+  sceneZsToggle.classList.toggle('active', active);
+  sceneZsToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
+  if (!active) clearSceneZsHighlight();
+}});
+zsBreakoutToggle.addEventListener('click', function() {{
+  var active = zsBreakoutLayer.classList.toggle('active');
+  zsBreakoutToggle.classList.toggle('active', active);
+  zsBreakoutToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
 }});
 segNotePopoverClose.addEventListener('click', function(e) {{
   e.preventDefault();
@@ -3180,6 +3289,15 @@ panelRoot.querySelectorAll('.chart-seg-line[data-seg-row],.chart-seg-hit[data-se
     var rowId = line.getAttribute('data-seg-row');
     highlightSegRow(rowId);
     openSegNotePopover(rowId);
+  }});
+}});
+panelRoot.querySelectorAll('.chart-scene-zs[data-scene-zs],.chart-scene-zs-hit[data-scene-zs]').forEach(function(node) {{
+  node.addEventListener('mousedown', function(e) {{
+    e.stopPropagation();
+  }});
+  node.addEventListener('click', function(e) {{
+    e.stopPropagation();
+    highlightSceneZs(node.getAttribute('data-scene-zs'));
   }});
 }});
 panelRoot.querySelectorAll('tr[data-target-idx]').forEach(function(row) {{
