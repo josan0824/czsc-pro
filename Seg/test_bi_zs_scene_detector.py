@@ -90,8 +90,8 @@ class TestDetectZSScene(unittest.TestCase):
         self.assertEqual(res.invalid_reason, "over8")
         self.assertEqual(res.zs_list[0].bi_count, 9)
 
-    def test_zs_exactly_8_pen_hit(self):
-        # 单中枢笔数 = 8（idx1..idx8），未闭合，<=8 -> 命中
+    def test_zs_unpaired_tail_trimmed_before_8_pen_limit(self):
+        # idx8 是末尾未配对的向上重叠笔，不计入本中枢；计入 idx1..idx7，共 7 笔
         seq = _seq([
             (True,  0, 10),  # idx0 S1
             (False, 5, 8),   # idx1 X1 进入
@@ -105,7 +105,8 @@ class TestDetectZSScene(unittest.TestCase):
         ])
         res = detect_zs_scene(seq, 0, 8, BI_DIR.UP)
         self.assertIsNotNone(res)
-        self.assertEqual(res.zs_list[0].bi_count, 8)
+        self.assertEqual(res.zs_list[0].last_bi_idx, 7)
+        self.assertEqual(res.zs_list[0].bi_count, 7)
 
     def test_adjacent_zs_peak_overlap_but_lowhigh_disjoint_hit(self):
         # 两中枢 [peak_low,peak_high] 相接/相交，但 [low,high] 不重叠 -> 命中
@@ -144,8 +145,8 @@ class TestDetectZSScene(unittest.TestCase):
         ])
         self.assertIsNone(detect_zs_scene(seq, 0, 7, BI_DIR.UP))
 
-    def test_unclosed_zs_hit(self):
-        # 单中枢扫到 end 仍重叠（未闭合），<=8 -> 命中
+    def test_unclosed_zs_trims_last_same_dir_tail(self):
+        # 单中枢扫到 end 仍重叠，但最后一笔是向上笔；向上段笔中枢应收在向下笔
         seq = _seq([
             (True,  0, 10),
             (False, 5, 8),   # X1 进入
@@ -156,9 +157,24 @@ class TestDetectZSScene(unittest.TestCase):
         res = detect_zs_scene(seq, 0, 4, BI_DIR.UP)
         self.assertIsNotNone(res)
         self.assertEqual(len(res.zs_list), 1)
-        self.assertEqual(res.zs_list[0].last_bi_idx, 4)
-        self.assertEqual(res.zs_list[0].bi_count, 4)
+        self.assertEqual(res.zs_list[0].last_bi_idx, 3)
+        self.assertEqual(res.zs_list[0].bi_count, 3)
         self.assertEqual(res.endpoint_bi_idx, 4)  # S3 最高
+
+    def test_unclosed_zs_keeps_paired_tail(self):
+        # 末尾落在与进中枢同向的向下笔时，可以作为已配对延伸计入本中枢
+        seq = _seq([
+            (True,  0, 10),
+            (False, 5, 8),   # X1 进入
+            (True,  5, 12),  # S2
+            (False, 6, 9),   # X2  中枢前三笔收在向下笔
+            (True,  6, 15),  # S3 延伸但未单独收尾
+            (False, 6, 9),   # X3 配对延伸，末尾仍是向下笔
+        ])
+        res = detect_zs_scene(seq, 0, 5, BI_DIR.UP)
+        self.assertIsNotNone(res)
+        self.assertEqual(res.zs_list[0].last_bi_idx, 5)
+        self.assertEqual(res.zs_list[0].bi_count, 5)
 
     def test_zs_overlap_low_uses_highest_low_not_peak_low(self):
         # 向上段前三笔 X1/S2/X2 的重叠下沿应取最高低点，即第三笔 X2 的低点；

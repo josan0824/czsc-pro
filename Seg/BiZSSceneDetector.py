@@ -36,6 +36,19 @@ def _intersects(bi, low: float, high: float) -> bool:
     return bi._high() >= low and bi._low() <= high
 
 
+def _make_zs_info(bi_list, first: int, last: int, low: float, high: float) -> BiZSInfo:
+    involved = bi_list[first:last + 1]
+    return BiZSInfo(
+        first_bi_idx=first,
+        last_bi_idx=last,
+        low=low,
+        high=high,
+        peak_low=min(bi._low() for bi in involved),
+        peak_high=max(bi._high() for bi in involved),
+        bi_count=last - first + 1,
+    )
+
+
 def detect_zs_scene(bi_list, begin_idx: int, end_idx: int, seg_dir) -> Optional[ZSSceneResult]:
     """
     判断 [begin_idx, end_idx] 区间内是否命中"笔中枢场景"。
@@ -73,30 +86,21 @@ def detect_zs_scene(bi_list, begin_idx: int, end_idx: int, seg_dir) -> Optional[
         if not (high > low):
             i = f + 1
             continue
-        peak_low = min(b0._low(), b1._low(), b2._low())
-        peak_high = max(b0._high(), b1._high(), b2._high())
         leave = None
         j = f + 3
         while j <= end_idx:
             if _intersects(bi_list[j], low, high):
-                peak_low = min(peak_low, bi_list[j]._low())
-                peak_high = max(peak_high, bi_list[j]._high())
                 j += 1
             else:
                 leave = j
                 break
         # 破坏笔(leave)不计入本中枢(注A)：last 指向最后一根与中枢区间重叠的笔；
-        # 下一中枢从破坏笔起算(i = last+1 = leave)。
+        # 如果末尾重叠笔与进中枢笔方向相反，说明它只是尚未被反向笔确认的半组延伸，
+        # 不计入本中枢；下一轮从被剔除笔处继续尝试。
         last = (leave - 1) if leave is not None else end_idx
-        zs_list.append(BiZSInfo(
-            first_bi_idx=f,
-            last_bi_idx=last,
-            low=low,
-            high=high,
-            peak_low=peak_low,
-            peak_high=peak_high,
-            bi_count=last - f + 1,
-        ))
+        if bi_list[last].dir != enter_dir:
+            last -= 1
+        zs_list.append(_make_zs_info(bi_list, f, last, low, high))
         if leave is None:
             break
         i = last + 1
