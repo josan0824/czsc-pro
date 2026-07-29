@@ -2379,6 +2379,9 @@ for bi in begin_next ... window_end:
         )
         svg.append("</svg>")
         fx_table, pen_table, seg_table = self._make_detail_tables(meta, chart_id, label)
+        show_pen_seg_tables = False
+        # Keep pen/segment table generation above so restoring the sections is a one-line switch.
+        pen_seg_tables = f"{pen_table}{seg_table}" if show_pen_seg_tables else ""
 
         return f"""
 {fx_table}
@@ -2428,8 +2431,7 @@ for bi in begin_next ... window_end:
     <span><i class="swatch" style="background:transparent;border-top:1.8px dashed #ef4444"></i>规则四终止（反向笔突破中枢边界）</span>
   </div>
 </div>
-{pen_table}
-{seg_table}
+{pen_seg_tables}
 <script>
 (function() {{
 var eventController = new AbortController();
@@ -2902,7 +2904,6 @@ function highlightPenRow(rowId, revealTable) {{
   revealTable = revealTable !== false;
   var row = panelRoot.querySelector('tr[data-pen-row="' + rowId + '"]');
   var tableWrap = document.getElementById('pen-table-{chart_id}');
-  if (!row && !tableWrap) return;
   panelRoot.querySelectorAll('tr.focused-row').forEach(function(x) {{ x.classList.remove('focused-row'); }});
   clearSceneZsHighlight();
   clearSegHighlight();
@@ -3009,7 +3010,6 @@ function highlightPenOnChart(rowId) {{
 function highlightSegRow(rowId) {{
   var row = panelRoot.querySelector('tr[data-seg-row="' + rowId + '"]');
   var tableWrap = document.getElementById('seg-table-{chart_id}');
-  if (!row || !tableWrap) return;
   panelRoot.querySelectorAll('tr.focused-row').forEach(function(x) {{ x.classList.remove('focused-row'); }});
   clearSceneZsHighlight();
   panelRoot.querySelectorAll('.chart-pen-line.focused-pen').forEach(function(x) {{
@@ -3026,8 +3026,10 @@ function highlightSegRow(rowId) {{
     segLine.setAttribute('stroke-width', '4.2');
     segLine.setAttribute('opacity', '1');
   }}
-  tableWrap.style.display = '';
-  tableWrap.scrollTop = Math.max(0, row.offsetTop - tableWrap.clientHeight * 0.42);
+  if (tableWrap && row) {{
+    tableWrap.style.display = '';
+    tableWrap.scrollTop = Math.max(0, row.offsetTop - tableWrap.clientHeight * 0.42);
+  }}
 }}
 function markFractalRange(rowId) {{
   var fx = data.fractals.find(function(item) {{ return String(item.row) === String(rowId); }});
