@@ -28,11 +28,11 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-DEFAULT_CODE = "SH000001"
-DEFAULT_DAYS = 120
+DEFAULT_CODE = "SSE.000905"
+DEFAULT_DAYS = 30
 DEFAULT_CHART_TIMEOUT_SECONDS = 20
 DEFAULT_LV = "1m"
-DEFAULT_SOURCE = "tdx_history"
+DEFAULT_SOURCE = "tqsdk"
 DEFAULT_SEG_ALGO = "chan_v2"
 TDX_HISTORY_DATA_SOURCE = "custom:TdxCacheAPI.CTdxCache"
 TQSDK_DATA_SOURCE = "custom:TqSdkAPI.CTqSdk"
@@ -903,16 +903,16 @@ iframe {{
           <option value="0">全部</option>
           <option value="5">5天</option>
           <option value="20">20天</option>
-          <option value="30">30天</option>
+          <option value="30" selected>30天</option>
           <option value="60">60天</option>
-          <option value="120" selected>120天</option>
+          <option value="120">120天</option>
           <option value="250">250天</option>
         </select>
         <select id="source-select" name="source">
           <option value="mootdx">通达信</option>
-          <option value="tdx_history" selected>通达信历史数据</option>
+          <option value="tdx_history">通达信历史数据</option>
           <option value="eastmoney">东方财富</option>
-          <option value="tqsdk">天勤</option>
+          <option value="tqsdk" selected>天勤</option>
         </select>
         <select id="seg-algo-select" name="seg_algo" title="切换线段划分算法">
           <option value="chan">线段 chan</option>

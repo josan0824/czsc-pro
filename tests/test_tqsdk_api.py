@@ -88,7 +88,9 @@ class TqSdkApiTest(unittest.TestCase):
 
     def test_index_page_includes_tqsdk_option_and_source_specific_items(self):
         page = index_html("127.0.0.1", 8000)
-        self.assertIn('option value="tqsdk">天勤', page)
+        self.assertIn('option value="tqsdk" selected>天勤', page)
+        self.assertIn('option value="30" selected>30天', page)
+        self.assertIn('value="SSE.000905"', page)
         self.assertIn('"tqsdk": [{"code": "SSE.000905"', page)
         self.assertNotIn('"code": "688111.SH"', page)
 
