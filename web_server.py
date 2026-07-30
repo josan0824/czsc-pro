@@ -35,6 +35,8 @@ DEFAULT_LV = "1m"
 DEFAULT_SOURCE = "tdx_history"
 DEFAULT_SEG_ALGO = "chan_v2"
 TDX_HISTORY_DATA_SOURCE = "custom:TdxCacheAPI.CTdxCache"
+TQSDK_DATA_SOURCE = "custom:TqSdkAPI.CTqSdk"
+TQSDK_SOURCE_ALIASES = ("tqsdk", "tq", "天勤")
 CODE_NAME_MAP = {
     "000001.SH": "上证指数",
     "SH000001": "上证指数",
@@ -47,29 +49,27 @@ CODE_NAME_MAP = {
     "SH000300": "沪深300",
     "000016.SH": "上证50",
     "SH000016": "上证50",
+    "SSE.000016": "上证50",
+    "SSE.000905": "中证500",
+    "SSE.000852": "中证1000",
+    "SSE.000300": "沪深300",
     "688111.SH": "金山办公",
     "002475.SZ": "立讯精密",
 }
-QUICK_CODES = [
-    "SH000001",
-    "000001.SZ",
-    "000905.SH",
-    "SH000852",
-    "SH000300",
-    "SH000016",
-    "688111.SH",
-    "002475.SZ",
-]
-QUICK_ITEMS = [{"code": code, "name": resolve_name} for code, resolve_name in [
-    ("SH000001", CODE_NAME_MAP["SH000001"]),
-    ("000001.SZ", CODE_NAME_MAP["000001.SZ"]),
+QUICK_ITEMS_BY_SOURCE = {
+    "default": [{"code": code, "name": resolve_name} for code, resolve_name in [
     ("000905.SH", CODE_NAME_MAP["000905.SH"]),
     ("SH000852", CODE_NAME_MAP["SH000852"]),
     ("SH000300", CODE_NAME_MAP["SH000300"]),
     ("SH000016", CODE_NAME_MAP["SH000016"]),
-    ("688111.SH", CODE_NAME_MAP["688111.SH"]),
-    ("002475.SZ", CODE_NAME_MAP["002475.SZ"]),
-]]
+    ]],
+    "tqsdk": [{"code": code, "name": resolve_name} for code, resolve_name in [
+        ("SSE.000905", CODE_NAME_MAP["SSE.000905"]),
+        ("SSE.000852", CODE_NAME_MAP["SSE.000852"]),
+        ("SSE.000300", CODE_NAME_MAP["SSE.000300"]),
+        ("SSE.000016", CODE_NAME_MAP["SSE.000016"]),
+    ]],
+}
 
 LV_OPTIONS = {
     "1m": KL_TYPE.K_1M,
@@ -83,6 +83,10 @@ LV_OPTIONS = {
 
 def normalize_code(code: str) -> str:
     value = code.strip().upper()
+    if re.fullmatch(r"SSE\.\d{6}", value):
+        return value
+    if re.fullmatch(r"SSE\d{6}", value):
+        return f"SSE.{value[3:]}"
     match = re.fullmatch(r"(SH|SZ|BJ)(\d{6})", value)
     if match:
         return f"{match.group(2)}.{match.group(1)}"
@@ -157,6 +161,8 @@ def parse_source(value: str):
         return TDX_HISTORY_DATA_SOURCE
     if source in ("eastmoney", "em", "东方财富"):
         return "custom:EastMoneyAPI.CEastMoney"
+    if source in TQSDK_SOURCE_ALIASES:
+        return TQSDK_DATA_SOURCE
     raise ValueError(f"不支持的数据源: {value}")
 
 
@@ -290,7 +296,7 @@ def build_chart_html(code: str, lv_key: str, days: int, source: str = DEFAULT_SO
         from DataAPI.MootdxAPI import CMootdx
 
         CMootdx.do_close()
-    autype = AUTYPE.NONE if data_src == TDX_HISTORY_DATA_SOURCE else AUTYPE.QFQ
+    autype = AUTYPE.NONE if data_src in (TDX_HISTORY_DATA_SOURCE, TQSDK_DATA_SOURCE) else AUTYPE.QFQ
     chan = build_single_level_chan(normalized_code, lv, begin_time, data_src, seg_algo=seg_algo, autype=autype)
     html_text = CHtmlPlotDriver(
         chan,
@@ -403,6 +409,8 @@ def build_chart_payload_with_timeout(
     seg_algo: str = DEFAULT_SEG_ALGO,
     timeout_seconds: int = DEFAULT_CHART_TIMEOUT_SECONDS,
 ) -> tuple[str, str]:
+    if (source or "").strip().lower() in TQSDK_SOURCE_ALIASES:
+        timeout_seconds = max(timeout_seconds, 90)
     ctx = multiprocessing.get_context("spawn")
     result_queue = ctx.Queue(maxsize=1)
     process = ctx.Process(
@@ -460,7 +468,7 @@ pre {{ white-space:pre-wrap; word-break:break-word; background:#f8fafc; border:1
 
 
 def index_html(host: str, port: int) -> str:
-    quick_items = json.dumps(QUICK_ITEMS, ensure_ascii=False)
+    quick_items_by_source = json.dumps(QUICK_ITEMS_BY_SOURCE, ensure_ascii=False)
     default_query = urlencode({
         "code": DEFAULT_CODE,
         "lv": DEFAULT_LV,
@@ -904,6 +912,7 @@ iframe {{
           <option value="mootdx">通达信</option>
           <option value="tdx_history" selected>通达信历史数据</option>
           <option value="eastmoney">东方财富</option>
+          <option value="tqsdk">天勤</option>
         </select>
         <select id="seg-algo-select" name="seg_algo" title="切换线段划分算法">
           <option value="chan">线段 chan</option>
@@ -948,7 +957,7 @@ iframe {{
   <div id="host-seg-note-popover-body" class="host-seg-note-popover-body"></div>
 </div>
 <script>
-var quickItems = {quick_items};
+var quickItemsBySource = {quick_items_by_source};
 var form = document.getElementById('query-form');
 var codeInput = document.getElementById('code-input');
 var lvSelect = document.getElementById('lv-select');
@@ -1022,6 +1031,40 @@ function setActive(code) {{
   var normalized = normalizeCode(code);
   quickList.querySelectorAll('button').forEach(function(btn) {{
     btn.classList.toggle('active', normalizeCode(btn.dataset.code) === normalized);
+  }});
+}}
+function getQuickItems() {{
+  return quickItemsBySource[sourceSelect.value] || quickItemsBySource.default;
+}}
+function findQuickItem(code) {{
+  var normalized = normalizeCode(code);
+  var match = null;
+  Object.keys(quickItemsBySource).some(function(source) {{
+    match = quickItemsBySource[source].find(function(item) {{
+      return normalizeCode(item.code) === normalized;
+    }});
+    return Boolean(match);
+  }});
+  return match;
+}}
+function mappedQuickCode(code) {{
+  var items = getQuickItems();
+  var item = findQuickItem(code);
+  if (!item) return sourceSelect.value === 'tqsdk' ? items[0].code : null;
+  var mapped = items.find(function(candidate) {{ return candidate.name === item.name; }});
+  return mapped ? mapped.code : (sourceSelect.value === 'tqsdk' ? items[0].code : null);
+}}
+function renderQuickItems() {{
+  quickList.innerHTML = '';
+  getQuickItems().forEach(function(item) {{
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'quick';
+    btn.dataset.code = item.code;
+    btn.title = item.code;
+    btn.textContent = item.name;
+    btn.addEventListener('click', function() {{ loadChart(item.code); }});
+    quickList.appendChild(btn);
   }});
 }}
 function normalizeCode(code) {{
@@ -1179,10 +1222,6 @@ function syncControlsFromFrame() {{
     var days = url.searchParams.get('days');
     var source = url.searchParams.get('source');
     var segAlgo = url.searchParams.get('seg_algo');
-    if (code) {{
-      codeInput.value = code.toUpperCase();
-      setActive(code);
-    }}
     if (lv && Array.prototype.some.call(lvSelect.options, function(option) {{ return option.value === lv; }})) {{
       lvSelect.value = lv;
     }}
@@ -1191,6 +1230,11 @@ function syncControlsFromFrame() {{
     }}
     if (source && Array.prototype.some.call(sourceSelect.options, function(option) {{ return option.value === source; }})) {{
       sourceSelect.value = source;
+      renderQuickItems();
+    }}
+    if (code) {{
+      codeInput.value = code.toUpperCase();
+      setActive(code);
     }}
     if (segAlgo && Array.prototype.some.call(segAlgoSelect.options, function(option) {{ return option.value === segAlgo; }})) {{
       segAlgoSelect.value = segAlgo;
@@ -1323,15 +1367,12 @@ function bindHostNoteRefs(scope) {{
     }});
   }});
 }}
-quickItems.forEach(function(item) {{
-  var btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'quick';
-  btn.dataset.code = item.code;
-  btn.title = item.code;
-  btn.textContent = item.name;
-  btn.addEventListener('click', function() {{ loadChart(item.code); }});
-  quickList.appendChild(btn);
+renderQuickItems();
+sourceSelect.addEventListener('change', function() {{
+  var mappedCode = mappedQuickCode(codeInput.value);
+  renderQuickItems();
+  if (mappedCode) codeInput.value = mappedCode;
+  setActive(codeInput.value);
 }});
 form.addEventListener('submit', function(e) {{
   e.preventDefault();
