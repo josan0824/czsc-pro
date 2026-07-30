@@ -108,6 +108,32 @@ class MinuteIoTest(unittest.TestCase):
             self.assertAlmostEqual(10.9, decoded.iloc[0]["close"], places=4)
             self.assertAlmostEqual(10.4, decoded.iloc[1]["close"], places=4)
 
+    def test_read_minute_fixes_high_low_against_open_close(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "sh000905.lc1"
+            path.write_bytes(io.encode_minute(self._min_df([
+                [pd.Timestamp("2026-04-28 15:00"), 8203.77, 8203.93, 8203.77, 8203.96, 0.0, 100],
+                [pd.Timestamp("2026-04-29 09:31"), 8203.90, 8204.10, 8203.85, 8204.00, 0.0, 100],
+            ])))
+
+            decoded = io.read_minute(path)
+
+        self.assertEqual(2, len(decoded))
+        self.assertAlmostEqual(8203.96, decoded.iloc[0]["high"], places=2)
+        self.assertAlmostEqual(8203.77, decoded.iloc[0]["low"], places=2)
+
+    def test_write_minute_fixes_high_low_against_open_close(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "sh000905.lc1"
+            io.write_minute(path, self._min_df([
+                [pd.Timestamp("2026-04-28 15:00"), 8203.77, 8203.93, 8203.77, 8203.96, 0.0, 100],
+            ]))
+
+            decoded = io.read_minute(path)
+
+        self.assertAlmostEqual(8203.96, decoded.iloc[0]["high"], places=2)
+        self.assertAlmostEqual(8203.77, decoded.iloc[0]["low"], places=2)
+
 
 class ExportedMinuteCsvTest(unittest.TestCase):
     """导出的 1 分钟 CSV 读取：兼容通达信导出的中文表头 + 无市场前缀文件名。"""
@@ -182,6 +208,41 @@ class ExportedMinuteCsvTest(unittest.TestCase):
         self.assertEqual(2, len(df))
         self.assertAlmostEqual(2.5, df.iloc[0]["close"], places=4)  # 后导出者胜出
         self.assertEqual(pd.Timestamp("2026-06-03 09:30"), df.iloc[1]["datetime"])
+
+    def test_writes_existing_exported_csv_layout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            vipdoc = root / "vipdoc"
+            self._write_cn_csv(root, "000905", [
+                ["2026/07/01 09:31", "000905", "中证500", 10.0, 10.2, 10.2, 9.8, 100.0, 0.0, 0.0],
+            ])
+
+            io.write_exported_minute_csv(
+                vipdoc,
+                "sh000905",
+                "中证500",
+                pd.DataFrame(
+                    [
+                        [pd.Timestamp("2026-07-01 09:31"), 10.0, 10.5, 9.8, 10.4, 200.0, 20],
+                        [pd.Timestamp("2026-07-01 09:32"), 10.4, 10.8, 10.3, 10.7, 300.0, 30],
+                    ],
+                    columns=io.COLUMNS,
+                ),
+            )
+            path = vipdoc / "2026-07_1min" / "20260701_1min" / "sh000905.csv"
+            raw_prefix = path.read_bytes()[:3]
+            df = pd.read_csv(path, encoding="utf-8-sig")
+
+        self.assertEqual(b"\xef\xbb\xbf", raw_prefix)
+        self.assertEqual(
+            ["datetime", "code", "name", "open", "close", "high", "low", "volume", "amount", "pct_chg", "amplitude"],
+            list(df.columns),
+        )
+        self.assertEqual(2, len(df))
+        self.assertEqual("sh000905", df.iloc[0]["code"])
+        self.assertEqual("中证500", df.iloc[0]["name"])
+        self.assertAlmostEqual(10.4, df.iloc[0]["close"], places=4)
+        self.assertAlmostEqual(10.7, df.iloc[-1]["close"], places=4)
 
 
 class ResampleTest(unittest.TestCase):

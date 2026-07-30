@@ -63,6 +63,9 @@ def normalize_reader_df(df):
         out[col] = pd.to_numeric(out[col], errors="coerce")
     out = out[COLUMNS]
     out = out.dropna(subset=["datetime", "open", "high", "low", "close"])
+    price_columns = ["open", "high", "low", "close"]
+    out["high"] = out[price_columns].max(axis=1)
+    out["low"] = out[price_columns].min(axis=1)
     out = out[(out["high"] >= out["low"]) & (out["volume"].fillna(0) >= 0)]
     return out.drop_duplicates(subset=["datetime"]).sort_values("datetime").reset_index(drop=True)
 
@@ -110,7 +113,7 @@ def decode_day(content: bytes, security_type: str) -> pd.DataFrame:
 def read_day(path: Path, security_type: str) -> pd.DataFrame:
     if not Path(path).is_file():
         return pd.DataFrame(columns=COLUMNS)
-    return decode_day(Path(path).read_bytes(), security_type)
+    return normalize_reader_df(decode_day(Path(path).read_bytes(), security_type))
 
 
 def _file_lock(path: Path):
@@ -198,7 +201,7 @@ def decode_minute(content: bytes) -> pd.DataFrame:
 def read_minute(path: Path) -> pd.DataFrame:
     if not Path(path).is_file():
         return pd.DataFrame(columns=COLUMNS)
-    return decode_minute(Path(path).read_bytes())
+    return normalize_reader_df(decode_minute(Path(path).read_bytes()))
 
 
 # 通达信导出 CSV 的中文表头 → 统一英文列名。英文表头经此映射不变。
@@ -267,6 +270,63 @@ def read_exported_minute_csv(vipdoc_dir: Path, symbol: str) -> pd.DataFrame:
     return pd.concat(parts, ignore_index=True).drop_duplicates(
         subset=["datetime"], keep="last"
     ).sort_values("datetime").reset_index(drop=True)
+
+
+def write_exported_minute_csv(vipdoc_dir: Path, symbol: str, name: str, df: pd.DataFrame) -> list[Path]:
+    """Write 1-minute bars using the existing exported CSV directory layout."""
+    normalized = normalize_reader_df(df)
+    if normalized.empty:
+        return []
+
+    vipdoc_dir = Path(vipdoc_dir)
+    code = str(symbol).lower()
+    display_name = str(name or code)
+    written_paths = []
+    for trading_day, day_df in normalized.groupby(normalized["datetime"].dt.normalize(), sort=True):
+        path = (
+            vipdoc_dir
+            / f"{trading_day:%Y-%m}_1min"
+            / f"{trading_day:%Y%m%d}_1min"
+            / f"{code}.csv"
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        old = pd.DataFrame()
+        if path.is_file():
+            try:
+                old = pd.read_csv(path, encoding="utf-8-sig").rename(columns=_EXPORTED_CSV_CN_COLUMN_MAP)
+            except (OSError, UnicodeDecodeError, ValueError, pd.errors.EmptyDataError, pd.errors.ParserError) as err:
+                logger.warning("[tdx_cache] ignore invalid exported csv before write path=%s error=%s", path, err)
+
+        if old.empty:
+            old_norm = pd.DataFrame(columns=COLUMNS)
+        else:
+            old_norm = normalize_reader_df(old)
+        merged = (
+            pd.concat([old_norm, day_df], ignore_index=True)
+            .drop_duplicates(subset=["datetime"], keep="last")
+            .sort_values("datetime")
+            .reset_index(drop=True)
+        )
+        merged["datetime"] = pd.to_datetime(merged["datetime"], errors="coerce")
+        merged = merged.dropna(subset=["datetime"])
+
+        out = pd.DataFrame({
+            "datetime": merged["datetime"].dt.strftime("%Y-%m-%d %H:%M:%S"),
+            "code": code,
+            "name": display_name,
+            "open": merged["open"],
+            "close": merged["close"],
+            "high": merged["high"],
+            "low": merged["low"],
+            "volume": merged["volume"],
+            "amount": merged["amount"],
+            "pct_chg": 0.0,
+            "amplitude": 0.0,
+        })
+        out.to_csv(path, index=False, encoding="utf-8-sig")
+        written_paths.append(path)
+    return written_paths
 
 
 def write_minute(path: Path, df: pd.DataFrame) -> None:
