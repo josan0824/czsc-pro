@@ -94,11 +94,11 @@ def detect_zs_scene(bi_list, begin_idx: int, end_idx: int, seg_dir) -> Optional[
             else:
                 leave = j
                 break
-        # 破坏笔(leave)不计入本中枢(注A)：last 指向最后一根与中枢区间重叠的笔；
-        # 如果末尾重叠笔与进中枢笔方向相反，说明它只是尚未被反向笔确认的半组延伸，
-        # 不计入本中枢；下一轮从被剔除笔处继续尝试。
+        # 破坏笔(leave)不计入本中枢(注A)：last 指向最后一根与中枢区间重叠的笔。
+        # 只有扫到窗口尾部仍未离开时，末尾相反方向重叠笔才是尚未确认的半组延伸；
+        # 若后面已经出现破坏笔，则最后一根重叠笔已被确认属于中枢延伸，应保留。
         last = (leave - 1) if leave is not None else end_idx
-        if bi_list[last].dir != enter_dir:
+        if leave is None and bi_list[last].dir != enter_dir:
             last -= 1
         zs_list.append(_make_zs_info(bi_list, f, last, low, high))
         if leave is None:

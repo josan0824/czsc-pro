@@ -211,6 +211,55 @@ class CEigenFXV2(CEigenFX):
         return max(events, key=lambda event: event.price)
 
     @staticmethod
+    def _first_zs_form_start(bi_list, begin_idx: int, end_idx: int, seg_dir: BI_DIR) -> Optional[int]:
+        """返回反向候选窗口里第一组三笔重叠雏形的起点。"""
+        if begin_idx < 0 or end_idx >= len(bi_list) or end_idx - begin_idx < 2:
+            return None
+        enter_dir = BI_DIR.DOWN if seg_dir == BI_DIR.UP else BI_DIR.UP
+        for i in range(begin_idx, end_idx - 1):
+            if bi_list[i].dir != enter_dir:
+                continue
+            b0, b1, b2 = bi_list[i], bi_list[i + 1], bi_list[i + 2]
+            low = max(b0._low(), b1._low(), b2._low())
+            high = min(b0._high(), b1._high(), b2._high())
+            if high > low:
+                return i
+        return None
+
+    def _scene_window_end(
+        self,
+        bi_list,
+        seg_start_idx: int,
+        raw_end_idx: int,
+        initial_event: _V2FxEvent,
+        reverse_events: List[_V2FxEvent],
+        reverse_dir: BI_DIR,
+    ) -> int:
+        """
+        场景笔中枢只能在当前候选线段窗口内扫描。
+
+        线段尚未最终确认时，用右侧最早的反向候选证据作为窗口边界：
+        1) 反向特征分型峰值；
+        2) 反向方向连续三笔重叠雏形。
+        """
+        stop_candidates: List[int] = []
+        for event in reverse_events:
+            if event.peak_bi_idx > initial_event.peak_bi_idx:
+                stop_candidates.append(event.peak_bi_idx)
+                break
+        reverse_zs_start = self._first_zs_form_start(
+            bi_list,
+            max(seg_start_idx, initial_event.peak_bi_idx + 1),
+            raw_end_idx,
+            reverse_dir,
+        )
+        if reverse_zs_start is not None and reverse_zs_start > initial_event.peak_bi_idx:
+            stop_candidates.append(reverse_zs_start)
+        if not stop_candidates:
+            return raw_end_idx
+        return min(raw_end_idx, min(stop_candidates) - 1)
+
+    @staticmethod
     def _is_more_extreme_opposite(event: _V2FxEvent, base: _V2FxEvent, same_dir: BI_DIR) -> bool:
         if same_dir == BI_DIR.UP:
             return event.price < base.price
@@ -424,7 +473,20 @@ class CEigenFXV2(CEigenFX):
             if raw_same_endpoint:
                 assert self.ele[0] is not None
                 seg_start_idx = self.seg_start_idx if self.seg_start_idx is not None else max(0, self.ele[0].lst[0].idx - 1)
-                last_endpoint_bi_idx = raw_same_endpoint[-1].peak_bi_idx
+                raw_end_idx = raw_same_endpoint[-1].peak_bi_idx
+                last_endpoint_bi_idx = self._scene_window_end(
+                    bi_list,
+                    seg_start_idx,
+                    raw_end_idx,
+                    initial_event,
+                    reverse_events,
+                    reverse_dir,
+                )
+                if last_endpoint_bi_idx < raw_end_idx:
+                    self.v2_notes.append(
+                        f"笔中枢场景窗口截断：第{last_endpoint_bi_idx + 2}笔起出现反向候选窗口，"
+                        f"当前候选段只在第{seg_start_idx + 1}笔至第{last_endpoint_bi_idx + 1}笔内检测笔中枢。"
+                    )
                 # last_endpoint 取到绝对极值时可能跨过中间反弹/反转，使整体 detect_zs_scene
                 # 判 None。改为找最长合法前缀：从 last_endpoint 递减，取第一个命中的 end。
                 zs_res = None
@@ -683,23 +745,34 @@ class CSegListChanV2(CSegListChan):
             self.lst[-1].eigen_fx = fx_eigen
             self.lst[-1].v2_notes = list(getattr(fx_eigen, "v2_notes", []))
             if getattr(fx_eigen, "zs_scene_result", None) is not None:
-                self.lst[-1].is_zs_scene = True
-                self.lst[-1].zs_scene_zs_list = list(fx_eigen.zs_scene_result.zs_list)
+                self.lst[-1].zs_scene_zs_list = [
+                    zs for zs in fx_eigen.zs_scene_result.zs_list
+                    if self.lst[-1].start_bi.idx <= zs.first_bi_idx
+                    and zs.last_bi_idx <= self.lst[-1].end_bi.idx
+                ]
+                self.lst[-1].is_zs_scene = bool(self.lst[-1].zs_scene_zs_list)
             elif self.config.zs_scene:
                 display_zs = detect_zs_scene(bi_lst, self.lst[-1].start_bi.idx, self.lst[-1].end_bi.idx, self.lst[-1].dir)
                 if display_zs is not None:
                     if getattr(display_zs, "is_valid", True):
-                        self.lst[-1].zs_scene_zs_list = list(display_zs.zs_list)
+                        self.lst[-1].zs_scene_zs_list = [
+                            zs for zs in display_zs.zs_list
+                            if self.lst[-1].start_bi.idx <= zs.first_bi_idx
+                            and zs.last_bi_idx <= self.lst[-1].end_bi.idx
+                        ]
                     else:
                         self.lst[-1].zs_scene_discarded_zs_list = [
                             zs for zs in display_zs.zs_list
                             if zs.bi_count > 8
+                            and self.lst[-1].start_bi.idx <= zs.first_bi_idx
+                            and zs.last_bi_idx <= self.lst[-1].end_bi.idx
                         ]
             if getattr(fx_eigen, "zs_scene_discarded_result", None) is not None:
                 self.lst[-1].zs_scene_discarded_zs_list = [
                     zs for zs in fx_eigen.zs_scene_discarded_result.zs_list
                     if zs.bi_count > 8
                     and self.lst[-1].start_bi.idx <= zs.first_bi_idx <= self.lst[-1].end_bi.idx
+                    and zs.last_bi_idx <= self.lst[-1].end_bi.idx
                 ]
             if getattr(fx_eigen, "zs_breakout_hit", False):
                 self.lst[-1].is_zs_breakout = True

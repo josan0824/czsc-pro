@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 from Common.CEnum import BI_DIR
 from Seg.BiZSSceneDetector import detect_zs_breakout, detect_zs_scene
+from Seg.SegListChanV2 import CEigenFXV2, _V2FxEvent
 
 
 @dataclass
@@ -176,6 +177,21 @@ class TestDetectZSScene(unittest.TestCase):
         self.assertEqual(res.zs_list[0].last_bi_idx, 5)
         self.assertEqual(res.zs_list[0].bi_count, 5)
 
+    def test_closed_zs_keeps_confirmed_opposite_tail(self):
+        # idx4 虽是向上重叠笔，但 idx5 已离开中枢，说明 idx4 是确认过的中枢延伸笔，应保留。
+        seq = _seq([
+            (True,  0, 10),
+            (False, 5, 8),   # X1 进入
+            (True,  5, 12),  # S2
+            (False, 6, 9),   # X2  中枢前三笔
+            (True,  6, 11),  # S3 仍与 [6,8] 重叠
+            (False, 1, 5),   # X3 离开，确认 idx4 属于上一中枢延伸
+        ])
+        res = detect_zs_scene(seq, 0, 5, BI_DIR.UP)
+        self.assertIsNotNone(res)
+        self.assertEqual(res.zs_list[0].last_bi_idx, 4)
+        self.assertEqual(res.zs_list[0].bi_count, 4)
+
     def test_zs_overlap_low_uses_highest_low_not_peak_low(self):
         # 向上段前三笔 X1/S2/X2 的重叠下沿应取最高低点，即第三笔 X2 的低点；
         # 不能取三笔外围最低点。
@@ -217,6 +233,31 @@ class TestDetectZSScene(unittest.TestCase):
     def test_too_few_bi_miss(self):
         seq = _seq([(True, 0, 10), (False, 5, 8)])
         self.assertIsNone(detect_zs_scene(seq, 0, 1, BI_DIR.UP))
+
+    def test_reverse_zs_form_caps_scene_window(self):
+        # 当前向上候选不能把右侧已经出现的向下候选三笔重叠雏形纳入同一个场景中枢窗口。
+        seq = _seq([
+            (True,  0, 10),   # idx0
+            (False, 5, 8),    # idx1
+            (True,  6, 12),   # idx2 当前初始向上候选端点
+            (False, 7, 11),   # idx3
+            (True,  7, 10),   # idx4 反向向下候选中枢进入（向上笔）
+            (False, 6, 10),   # idx5
+            (True,  6, 9),    # idx6 三笔重叠雏形成立
+            (False, 5, 9),    # idx7
+        ])
+        initial_event = _V2FxEvent(
+            seg_dir=BI_DIR.UP,
+            peak_bi_idx=2,
+            evidence_bi_idx=2,
+            price=12,
+            all_sure=True,
+        )
+        fx = CEigenFXV2(BI_DIR.UP)
+        self.assertEqual(
+            fx._scene_window_end(seq, 0, 7, initial_event, [], BI_DIR.DOWN),
+            3,
+        )
 
 
 class TestDetectZSBreakout(unittest.TestCase):

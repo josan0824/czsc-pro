@@ -10,3 +10,4 @@ OpenConfig.yaml
 gotify_push.py
 cos_config.yaml
 .DS_Store
+*.csv

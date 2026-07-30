@@ -1,3 +1,4 @@
+import types
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -8,6 +9,14 @@ import pandas as pd
 from Common.CEnum import KL_TYPE
 from DataAPI.TqSdkAPI import CTqSdk, TQSDK_KLINE_DURATIONS, load_tqsdk_credentials, normalize_tqsdk_symbol
 from web_server import QUICK_ITEMS_BY_SOURCE, TQSDK_DATA_SOURCE, index_html, parse_source
+
+
+def make_fake_tqsdk_module():
+    module = types.ModuleType("tqsdk")
+    module.tafunc = types.SimpleNamespace(
+        time_to_datetime=lambda value: pd.to_datetime(value, unit="ns", utc=True).tz_convert("Asia/Shanghai")
+    )
+    return module
 
 
 class TqSdkApiTest(unittest.TestCase):
@@ -76,7 +85,8 @@ class TqSdkApiTest(unittest.TestCase):
         fake_api = FakeApi()
         CTqSdk.api = fake_api
         try:
-            bars = list(CTqSdk("SSE.000905", KL_TYPE.K_1M).get_kl_data())
+            with patch.dict("sys.modules", {"tqsdk": make_fake_tqsdk_module()}):
+                bars = list(CTqSdk("SSE.000905", KL_TYPE.K_1M).get_kl_data())
         finally:
             CTqSdk.api = previous_api
 
@@ -87,6 +97,58 @@ class TqSdkApiTest(unittest.TestCase):
         self.assertEqual(5210.0, bars[0].high)
         self.assertEqual(5190.0, bars[0].low)
         self.assertEqual(5205.0, bars[0].close)
+
+    def test_filters_tz_aware_tqsdk_rows_with_naive_date_bounds(self):
+        def timestamp_ns(local_time: str) -> int:
+            return pd.Timestamp(local_time, tz="Asia/Shanghai").value
+
+        class FakeApi:
+            def get_kline_serial(self, symbol, duration_seconds, data_length):
+                return pd.DataFrame([
+                    {
+                        "datetime": timestamp_ns("2026-03-31 15:00:00"),
+                        "open": 1.0,
+                        "high": 1.0,
+                        "low": 1.0,
+                        "close": 1.0,
+                        "volume": 1.0,
+                    },
+                    {
+                        "datetime": timestamp_ns("2026-04-01 09:31:00"),
+                        "open": 2.0,
+                        "high": 2.0,
+                        "low": 2.0,
+                        "close": 2.0,
+                        "volume": 2.0,
+                    },
+                    {
+                        "datetime": timestamp_ns("2026-04-02 00:00:00"),
+                        "open": 3.0,
+                        "high": 3.0,
+                        "low": 3.0,
+                        "close": 3.0,
+                        "volume": 3.0,
+                    },
+                ])
+
+        previous_api = CTqSdk.api
+        CTqSdk.api = FakeApi()
+        try:
+            with patch.dict("sys.modules", {"tqsdk": make_fake_tqsdk_module()}):
+                bars = list(
+                    CTqSdk(
+                        "SSE.000905",
+                        KL_TYPE.K_1M,
+                        begin_date="2026-04-01",
+                        end_date="2026-04-01",
+                    ).get_kl_data()
+                )
+        finally:
+            CTqSdk.api = previous_api
+
+        self.assertEqual(1, len(bars))
+        self.assertEqual("2026/04/01 09:31", bars[0].time.to_str())
+        self.assertEqual(2.0, bars[0].open)
 
     def test_empty_tqsdk_serial_is_reported_as_no_data(self):
         class FakeApi:

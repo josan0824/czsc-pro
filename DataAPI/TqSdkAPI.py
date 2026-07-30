@@ -57,6 +57,22 @@ def _to_ctime(value: datetime) -> CTime:
     return CTime(value.year, value.month, value.day, value.hour, value.minute, value.second, auto=False)
 
 
+def _match_datetime_timezone(value, datetime_series: pd.Series):
+    timestamp = pd.to_datetime(value, errors="coerce")
+    if pd.isna(timestamp):
+        return None
+
+    series_tz = getattr(datetime_series.dtype, "tz", None)
+    timestamp_tz = getattr(timestamp, "tzinfo", None)
+    if series_tz is not None:
+        if timestamp_tz is None:
+            return timestamp.tz_localize(series_tz)
+        return timestamp.tz_convert(series_tz)
+    if timestamp_tz is not None:
+        return timestamp.tz_localize(None)
+    return timestamp
+
+
 def load_tqsdk_credentials() -> tuple[str, str]:
     """Load project credentials first, then allow deployment env vars to override them."""
     values: dict[str, str] = {}
@@ -156,12 +172,17 @@ class CTqSdk(CCommonStockApi):
         frame = frame[(frame["high"] >= frame["low"]) & (frame["volume"].fillna(0) >= 0)]
 
         if self.begin_date:
-            frame = frame[frame["datetime"] >= pd.to_datetime(self.begin_date)]
+            begin = _match_datetime_timezone(self.begin_date, frame["datetime"])
+            if begin is not None:
+                frame = frame[frame["datetime"] >= begin]
         if self.end_date:
-            end = pd.to_datetime(self.end_date)
-            if end == end.normalize():
-                end += pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
-            frame = frame[frame["datetime"] <= end]
+            end = pd.to_datetime(self.end_date, errors="coerce")
+            if not pd.isna(end):
+                if end == end.normalize():
+                    end += pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+                end = _match_datetime_timezone(end, frame["datetime"])
+                if end is not None:
+                    frame = frame[frame["datetime"] <= end]
 
         frame = frame.drop_duplicates(subset=["datetime"]).sort_values("datetime").reset_index(drop=True)
         if frame.empty:
