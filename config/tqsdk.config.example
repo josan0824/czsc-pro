@@ -1,0 +1,3 @@
+# Copy this file to config/tqsdk.config and enter your own credentials.
+TQ_ACCOUNT=
+TQ_PASSWORD=
