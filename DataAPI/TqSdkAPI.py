@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -44,6 +45,7 @@ TQSDK_NATIVE_K_TYPES = {
     KL_TYPE.K_DAY: KL_TYPE.K_DAY,
 }
 _MAX_KLINE_LENGTH = 10_000
+_TQSDK_FETCH_WAIT_SECONDS = 8.0
 TQSDK_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "tqsdk.config"
 TQSDK_DEFAULT_TDX_ROOT = Path(__file__).resolve().parents[1] / "data" / "tdx"
 
@@ -112,7 +114,12 @@ def _tqsdk_cache_symbol(tqsdk_symbol: str) -> tuple[str, str]:
 
 
 def _latest_a_share_minute_ceiling(now: pd.Timestamp | None = None) -> pd.Timestamp:
-    now = pd.Timestamp.now() if now is None else pd.Timestamp(now)
+    if now is None:
+        now = pd.Timestamp.now(tz="Asia/Shanghai").tz_localize(None)
+    else:
+        now = pd.Timestamp(now)
+        if now.tzinfo is not None:
+            now = now.tz_convert("Asia/Shanghai").tz_localize(None)
     current_day = now.normalize()
     previous_day = current_day - pd.Timedelta(days=1)
     while previous_day.weekday() >= 5:
@@ -138,8 +145,8 @@ def _latest_a_share_minute_ceiling(now: pd.Timestamp | None = None) -> pd.Timest
     return market_close
 
 
-def load_tqsdk_credentials() -> tuple[str, str]:
-    """Load project credentials first, then allow deployment env vars to override them."""
+def load_tqsdk_config() -> dict[str, str]:
+    """Load local TqSdk settings from config/tqsdk.config."""
     values: dict[str, str] = {}
     if TQSDK_CONFIG_PATH.is_file():
         for raw_line in TQSDK_CONFIG_PATH.read_text(encoding="utf-8").splitlines():
@@ -147,12 +154,34 @@ def load_tqsdk_credentials() -> tuple[str, str]:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, value = line.split("=", 1)
-            if key.strip() in {"TQ_ACCOUNT", "TQ_PASSWORD"}:
-                values[key.strip()] = value.strip().strip('"').strip("'")
+            values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def load_tqsdk_credentials() -> tuple[str, str]:
+    """Load project credentials first, then allow deployment env vars to override them."""
+    values = load_tqsdk_config()
 
     account = os.environ.get("TQ_ACCOUNT", values.get("TQ_ACCOUNT", "")).strip()
     password = os.environ.get("TQ_PASSWORD", values.get("TQ_PASSWORD", ""))
     return account, password
+
+
+def load_tqsdk_fetch_wait_seconds() -> float:
+    values = load_tqsdk_config()
+    try:
+        return float(values.get("TQSDK_FETCH_WAIT_SECONDS", _TQSDK_FETCH_WAIT_SECONDS))
+    except ValueError:
+        return _TQSDK_FETCH_WAIT_SECONDS
+
+
+def _frame_range_label(frame: pd.DataFrame) -> str:
+    if frame is None or frame.empty or "datetime" not in frame.columns:
+        return "empty"
+    datetimes = pd.to_datetime(frame["datetime"], errors="coerce").dropna()
+    if datetimes.empty:
+        return f"rows={len(frame)}, datetime=invalid"
+    return f"rows={len(frame)}, range={datetimes.min()} ~ {datetimes.max()}"
 
 
 class CTqSdk(CCommonStockApi):
@@ -226,6 +255,7 @@ class CTqSdk(CCommonStockApi):
         ceiling = self.__coverage_ceiling(native_k)
         last_local = native_df["datetime"].max() if not native_df.empty else None
         need_fetch = native_df.empty or (last_local is not None and last_local < ceiling)
+        online = pd.DataFrame(columns=io.COLUMNS)
 
         if self.begin_date and not native_df.empty:
             begin = pd.to_datetime(self.begin_date, errors="coerce")
@@ -260,12 +290,19 @@ class CTqSdk(CCommonStockApi):
                     .reset_index(drop=True)
                 )
             if not online.empty:
-                self.__write_local(native_k, merged)
+                self.__write_local(native_k, online)
 
         frame = self.__derive_if_needed(native_k, merged)
         frame = self.__apply_range(frame)
         if frame.empty:
-            raise RuntimeError(f"天勤未返回 {self.symbol} 在请求范围内的 {self.k_type.name} K线数据")
+            raise RuntimeError(
+                f"天勤未返回 {self.symbol} 在请求范围内的 {self.k_type.name} K线数据；"
+                f"请求 begin={self.begin_date or '-'} end={self.end_date or '-'}；"
+                f"cache_root={self.tdx_root}；"
+                f"local({_frame_range_label(native_df)})；"
+                f"online({_frame_range_label(online)})；"
+                f"merged({_frame_range_label(merged)})"
+            )
         return frame
 
     def __native_k_type(self):
@@ -349,6 +386,7 @@ class CTqSdk(CCommonStockApi):
             duration_seconds=duration,
             data_length=_MAX_KLINE_LENGTH,
         )
+        self.__wait_for_valid_kline_frame(frame)
         frame = frame.copy()
         if frame.empty:
             return pd.DataFrame(columns=io.COLUMNS)
@@ -370,9 +408,12 @@ class CTqSdk(CCommonStockApi):
             frame["amount"] = 0.0
         frame = io.normalize_reader_df(frame)
 
-        fetch_begin = last_local if last_local is not None else self.begin_date
-        if fetch_begin is not None:
-            begin = _match_datetime_timezone(fetch_begin, frame["datetime"])
+        if last_local is not None:
+            begin = _match_datetime_timezone(last_local, frame["datetime"])
+            if begin is not None:
+                frame = frame[frame["datetime"] > begin]
+        elif self.begin_date is not None:
+            begin = _match_datetime_timezone(self.begin_date, frame["datetime"])
             if begin is not None:
                 frame = frame[frame["datetime"] >= begin]
         if self.end_date:
@@ -386,6 +427,42 @@ class CTqSdk(CCommonStockApi):
 
         frame = frame.drop_duplicates(subset=["datetime"]).sort_values("datetime").reset_index(drop=True)
         return frame
+
+    @staticmethod
+    def __has_valid_raw_kline_frame(frame) -> bool:
+        if frame is None or frame.empty or "datetime" not in frame.columns:
+            return False
+        datetimes = pd.to_numeric(frame["datetime"], errors="coerce")
+        return bool((datetimes.notna() & (datetimes > 0)).any())
+
+    def __wait_for_valid_kline_frame(self, frame) -> None:
+        if self.__has_valid_raw_kline_frame(frame):
+            return
+
+        wait_update = getattr(self.__class__.api, "wait_update", None)
+        if not callable(wait_update):
+            return
+
+        wait_seconds = load_tqsdk_fetch_wait_seconds()
+        if wait_seconds <= 0:
+            return
+
+        deadline = time.time() + wait_seconds
+        waited = False
+        while time.time() < deadline and not self.__has_valid_raw_kline_frame(frame):
+            waited = True
+            try:
+                updated = wait_update(deadline=deadline)
+            except TypeError:
+                updated = wait_update()
+            if updated is False:
+                break
+        if waited:
+            logger.info(
+                "[tqsdk] waited for kline update code=%s valid=%s",
+                self.code,
+                self.__has_valid_raw_kline_frame(frame),
+            )
 
     def __derive_if_needed(self, native_k_type, frame):
         if self.k_type == native_k_type:

@@ -15,6 +15,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
+from zoneinfo import ZoneInfo
 
 from Chan import CChan
 from ChanConfig import CChanConfig
@@ -34,6 +35,7 @@ DEFAULT_CHART_TIMEOUT_SECONDS = 20
 DEFAULT_LV = "1m"
 DEFAULT_SOURCE = "tqsdk"
 DEFAULT_SEG_ALGO = "chan_v2"
+CHINA_TZ = ZoneInfo("Asia/Shanghai")
 TDX_HISTORY_DATA_SOURCE = "custom:TdxCacheAPI.CTdxCache"
 TQSDK_DATA_SOURCE = "custom:TqSdkAPI.CTqSdk"
 TQSDK_SOURCE_ALIASES = ("tqsdk", "tq", "天勤")
@@ -291,7 +293,7 @@ def build_chart_html(code: str, lv_key: str, days: int, source: str = DEFAULT_SO
     data_src = parse_source(source)
     seg_algo = parse_seg_algo(seg_algo)
     days = 0 if days <= 0 else max(5, min(days, 3650))
-    begin_time = None if days <= 0 else (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    begin_time = None if days <= 0 else (datetime.now(CHINA_TZ) - timedelta(days=days)).strftime("%Y-%m-%d")
     if data_src == DATA_SRC.MOOTDX:
         from DataAPI.MootdxAPI import CMootdx
 

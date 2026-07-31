@@ -9,7 +9,13 @@ import pandas as pd
 from Common.CEnum import KL_TYPE
 from DataAPI import tdx_vipdoc_io as io
 from DataAPI.TdxHistoryAPI import TDX_HISTORY_DIR_ENV
-from DataAPI.TqSdkAPI import CTqSdk, TQSDK_KLINE_DURATIONS, load_tqsdk_credentials, normalize_tqsdk_symbol
+from DataAPI.TqSdkAPI import (
+    CTqSdk,
+    TQSDK_KLINE_DURATIONS,
+    load_tqsdk_credentials,
+    load_tqsdk_fetch_wait_seconds,
+    normalize_tqsdk_symbol,
+)
 from DataAPI.TqSdkAPI import _latest_a_share_minute_ceiling
 from web_server import QUICK_ITEMS_BY_SOURCE, TQSDK_DATA_SOURCE, index_html, parse_source
 
@@ -77,6 +83,13 @@ class TqSdkApiTest(unittest.TestCase):
             ):
                 self.assertEqual(("env-account", "env-password"), load_tqsdk_credentials())
 
+    def test_loads_fetch_wait_seconds_from_project_config(self):
+        with TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "tqsdk.config"
+            config_path.write_text("TQSDK_FETCH_WAIT_SECONDS=0.2\n")
+            with patch("DataAPI.TqSdkAPI.TQSDK_CONFIG_PATH", config_path), patch.dict("os.environ", {}, clear=True):
+                self.assertEqual(0.2, load_tqsdk_fetch_wait_seconds())
+
     def test_web_source_and_quick_codes(self):
         self.assertEqual(TQSDK_DATA_SOURCE, parse_source("tqsdk"))
         self.assertEqual(TQSDK_DATA_SOURCE, parse_source("天勤"))
@@ -127,6 +140,56 @@ class TqSdkApiTest(unittest.TestCase):
         self.assertEqual(5200.0, bars[0].open)
         self.assertEqual(5210.0, bars[0].high)
         self.assertEqual(5190.0, bars[0].low)
+        self.assertEqual(5205.0, bars[0].close)
+
+    def test_waits_for_initial_tqsdk_serial_update(self):
+        class FakeApi:
+            def __init__(self):
+                self.calls = []
+                self.waits = 0
+                self.frame = pd.DataFrame([{
+                    "datetime": float("nan"),
+                    "open": float("nan"),
+                    "high": float("nan"),
+                    "low": float("nan"),
+                    "close": float("nan"),
+                    "volume": float("nan"),
+                }])
+
+            def get_kline_serial(self, symbol, duration_seconds, data_length):
+                self.calls.append((symbol, duration_seconds, data_length))
+                return self.frame
+
+            def wait_update(self, deadline=None):
+                self.waits += 1
+                self.frame.loc[0, ["datetime", "open", "high", "low", "close", "volume"]] = [
+                    timestamp_ns("2026-07-31 09:31:00"),
+                    5200.0,
+                    5210.0,
+                    5190.0,
+                    5205.0,
+                    123.0,
+                ]
+                return True
+
+        previous_api = CTqSdk.api
+        fake_api = FakeApi()
+        CTqSdk.api = fake_api
+        try:
+            with TemporaryDirectory() as temp_dir, patch.dict(
+                "os.environ", {TDX_HISTORY_DIR_ENV: temp_dir}
+            ), patch("DataAPI.TqSdkAPI.TQSDK_CONFIG_PATH", Path(temp_dir) / "tqsdk.config"), patch.dict(
+                "sys.modules", {"tqsdk": make_fake_tqsdk_module()}
+            ):
+                (Path(temp_dir) / "tqsdk.config").write_text("TQSDK_FETCH_WAIT_SECONDS=0.2\n")
+                bars = list(CTqSdk("SSE.000852", KL_TYPE.K_1M).get_kl_data())
+        finally:
+            CTqSdk.api = previous_api
+
+        self.assertEqual([("SSE.000852", 60, 10000)], fake_api.calls)
+        self.assertEqual(1, fake_api.waits)
+        self.assertEqual(1, len(bars))
+        self.assertEqual("2026/07/31 09:31", bars[0].time.to_str())
         self.assertEqual(5205.0, bars[0].close)
 
     def test_filters_tz_aware_tqsdk_rows_with_naive_date_bounds(self):
@@ -454,6 +517,79 @@ class TqSdkApiTest(unittest.TestCase):
         self.assertEqual(2, len(cached))
         self.assertEqual(pd.Timestamp("2026-04-28 15:00"), cached.iloc[0]["datetime"])
         self.assertEqual(pd.Timestamp("2026-07-01 09:31"), cached.iloc[-1]["datetime"])
+
+    def test_only_writes_missing_tqsdk_rows_after_local_cache(self):
+        class FakeApi:
+            def __init__(self):
+                self.calls = []
+
+            def get_kline_serial(self, symbol, duration_seconds, data_length):
+                self.calls.append((symbol, duration_seconds, data_length))
+                return pd.DataFrame([
+                    {
+                        "datetime": timestamp_ns("2026-07-30 14:59:00"),
+                        "open": 99.0,
+                        "high": 99.0,
+                        "low": 99.0,
+                        "close": 99.0,
+                        "volume": 99.0,
+                    },
+                    {
+                        "datetime": timestamp_ns("2026-07-31 09:31:00"),
+                        "open": 11.0,
+                        "high": 11.5,
+                        "low": 10.8,
+                        "close": 11.2,
+                        "volume": 30.0,
+                    },
+                ])
+
+        with TemporaryDirectory() as temp_dir, patch.dict(
+            "os.environ", {TDX_HISTORY_DIR_ENV: temp_dir}
+        ), patch.dict("sys.modules", {"tqsdk": make_fake_tqsdk_module()}):
+            root = Path(temp_dir)
+            write_exported_1min_csv(
+                root,
+                "sh000852",
+                [[pd.Timestamp("2026-07-30 14:59"), 10.0, 10.5, 9.8, 10.2, 100.0, 10]],
+            )
+            original_write = io.write_exported_minute_csv
+            written_days = []
+
+            def spy_write_exported_minute_csv(vipdoc_dir, symbol, name, df):
+                normalized = io.normalize_reader_df(df)
+                written_days.extend(
+                    pd.Timestamp(day).strftime("%Y-%m-%d")
+                    for day in normalized["datetime"].dt.normalize().drop_duplicates()
+                )
+                return original_write(vipdoc_dir, symbol, name, df)
+
+            previous_api = CTqSdk.api
+            fake_api = FakeApi()
+            CTqSdk.api = fake_api
+            try:
+                with patch("DataAPI.TqSdkAPI.io.write_exported_minute_csv", side_effect=spy_write_exported_minute_csv):
+                    bars = list(
+                        CTqSdk(
+                            "SSE.000852",
+                            KL_TYPE.K_1M,
+                            begin_date="2026-07-30",
+                            end_date="2026-07-31 09:31",
+                        ).get_kl_data()
+                    )
+            finally:
+                CTqSdk.api = previous_api
+
+            cached = io.read_exported_minute_csv(root / "vipdoc", "sh000852")
+
+        self.assertEqual([("SSE.000852", 60, 10000)], fake_api.calls)
+        self.assertEqual(["2026-07-31"], written_days)
+        self.assertEqual(["2026/07/30 14:59", "2026/07/31 09:31"], [bar.time.to_str() for bar in bars])
+        self.assertEqual(2, len(cached))
+        self.assertEqual(pd.Timestamp("2026-07-30 14:59"), cached.iloc[0]["datetime"])
+        self.assertAlmostEqual(10.2, cached.iloc[0]["close"], places=4)
+        self.assertEqual(pd.Timestamp("2026-07-31 09:31"), cached.iloc[-1]["datetime"])
+        self.assertAlmostEqual(11.2, cached.iloc[-1]["close"], places=4)
 
     def test_empty_tqsdk_serial_is_reported_as_no_data(self):
         class FakeApi:

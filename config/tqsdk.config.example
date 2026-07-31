@@ -1,3 +1,4 @@
 # Copy this file to config/tqsdk.config and enter your own credentials.
 TQ_ACCOUNT=
 TQ_PASSWORD=
+TQSDK_FETCH_WAIT_SECONDS=8
