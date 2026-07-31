@@ -184,6 +184,20 @@ def _frame_range_label(frame: pd.DataFrame) -> str:
     return f"rows={len(frame)}, range={datetimes.min()} ~ {datetimes.max()}"
 
 
+def _raw_tqsdk_frame_range_label(frame) -> str:
+    if frame is None or frame.empty or "datetime" not in frame.columns:
+        return "empty"
+    datetimes = pd.to_numeric(frame["datetime"], errors="coerce")
+    datetimes = datetimes[datetimes.notna() & (datetimes > 0)]
+    if datetimes.empty:
+        return f"rows={len(frame)}, datetime=invalid"
+    parsed = pd.to_datetime(datetimes, unit="ns", utc=True, errors="coerce").dropna()
+    if parsed.empty:
+        return f"rows={len(frame)}, datetime=invalid"
+    parsed = parsed.dt.tz_convert("Asia/Shanghai").dt.tz_localize(None)
+    return f"rows={len(frame)}, range={parsed.min()} ~ {parsed.max()}"
+
+
 class CTqSdk(CCommonStockApi):
     """本地 vipdoc 优先，不足时通过 TqSdk 补齐并写回本地缓存。"""
 
@@ -197,6 +211,8 @@ class CTqSdk(CCommonStockApi):
         self.security_type = None
         self.cache_name = None
         self._exported_minute_df = None
+        self._last_online_raw_label = "not requested"
+        self._last_online_error = ""
         super(CTqSdk, self).__init__(code, k_type, begin_date, end_date, autype)
 
     def SetBasciInfo(self):
@@ -274,6 +290,7 @@ class CTqSdk(CCommonStockApi):
             try:
                 online = self.__fetch_online_df(native_k, last_local)
             except Exception as err:
+                self._last_online_error = str(err)
                 if native_df.empty:
                     raise
                 logger.warning("[tqsdk] 联网失败 code=%s err=%s，回退本地数据", self.code, err)
@@ -300,8 +317,10 @@ class CTqSdk(CCommonStockApi):
                 f"请求 begin={self.begin_date or '-'} end={self.end_date or '-'}；"
                 f"cache_root={self.tdx_root}；"
                 f"local({_frame_range_label(native_df)})；"
+                f"online_raw({self._last_online_raw_label})；"
                 f"online({_frame_range_label(online)})；"
                 f"merged({_frame_range_label(merged)})"
+                f"{'；online_error=' + self._last_online_error if self._last_online_error else ''}"
             )
         return frame
 
@@ -386,7 +405,8 @@ class CTqSdk(CCommonStockApi):
             duration_seconds=duration,
             data_length=_MAX_KLINE_LENGTH,
         )
-        self.__wait_for_valid_kline_frame(frame)
+        self.__wait_for_required_kline_frame(frame, last_local)
+        self._last_online_raw_label = _raw_tqsdk_frame_range_label(frame)
         frame = frame.copy()
         if frame.empty:
             return pd.DataFrame(columns=io.COLUMNS)
@@ -435,8 +455,32 @@ class CTqSdk(CCommonStockApi):
         datetimes = pd.to_numeric(frame["datetime"], errors="coerce")
         return bool((datetimes.notna() & (datetimes > 0)).any())
 
-    def __wait_for_valid_kline_frame(self, frame) -> None:
-        if self.__has_valid_raw_kline_frame(frame):
+    def __raw_kline_max_time(self, frame):
+        if frame is None or frame.empty or "datetime" not in frame.columns:
+            return None
+        datetimes = pd.to_numeric(frame["datetime"], errors="coerce")
+        datetimes = datetimes[datetimes.notna() & (datetimes > 0)]
+        if datetimes.empty:
+            return None
+        parsed = pd.to_datetime(datetimes, unit="ns", utc=True, errors="coerce").dropna()
+        if parsed.empty:
+            return None
+        return parsed.dt.tz_convert("Asia/Shanghai").dt.tz_localize(None).max()
+
+    def __has_required_raw_kline_frame(self, frame, last_local) -> bool:
+        max_time = self.__raw_kline_max_time(frame)
+        if max_time is None:
+            return False
+        if last_local is not None:
+            return max_time > pd.Timestamp(last_local)
+        if self.begin_date is not None:
+            begin = pd.to_datetime(self.begin_date, errors="coerce")
+            if not pd.isna(begin):
+                return max_time >= begin
+        return True
+
+    def __wait_for_required_kline_frame(self, frame, last_local) -> None:
+        if self.__has_required_raw_kline_frame(frame, last_local):
             return
 
         wait_update = getattr(self.__class__.api, "wait_update", None)
@@ -449,7 +493,7 @@ class CTqSdk(CCommonStockApi):
 
         deadline = time.time() + wait_seconds
         waited = False
-        while time.time() < deadline and not self.__has_valid_raw_kline_frame(frame):
+        while time.time() < deadline and not self.__has_required_raw_kline_frame(frame, last_local):
             waited = True
             try:
                 updated = wait_update(deadline=deadline)
@@ -459,9 +503,10 @@ class CTqSdk(CCommonStockApi):
                 break
         if waited:
             logger.info(
-                "[tqsdk] waited for kline update code=%s valid=%s",
+                "[tqsdk] waited for kline update code=%s required=%s raw=%s",
                 self.code,
-                self.__has_valid_raw_kline_frame(frame),
+                self.__has_required_raw_kline_frame(frame, last_local),
+                _raw_tqsdk_frame_range_label(frame),
             )
 
     def __derive_if_needed(self, native_k_type, frame):

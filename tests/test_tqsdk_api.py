@@ -591,6 +591,69 @@ class TqSdkApiTest(unittest.TestCase):
         self.assertEqual(pd.Timestamp("2026-07-31 09:31"), cached.iloc[-1]["datetime"])
         self.assertAlmostEqual(11.2, cached.iloc[-1]["close"], places=4)
 
+    def test_waits_until_tqsdk_serial_has_rows_after_local_cache(self):
+        class FakeApi:
+            def __init__(self):
+                self.calls = []
+                self.waits = 0
+                self.frame = pd.DataFrame([{
+                    "datetime": timestamp_ns("2026-06-26 15:00:00"),
+                    "open": 9.0,
+                    "high": 9.0,
+                    "low": 9.0,
+                    "close": 9.0,
+                    "volume": 9.0,
+                }])
+
+            def get_kline_serial(self, symbol, duration_seconds, data_length):
+                self.calls.append((symbol, duration_seconds, data_length))
+                return self.frame
+
+            def wait_update(self, deadline=None):
+                self.waits += 1
+                self.frame.loc[1, ["datetime", "open", "high", "low", "close", "volume"]] = [
+                    timestamp_ns("2026-07-01 09:31:00"),
+                    11.0,
+                    11.5,
+                    10.8,
+                    11.2,
+                    30.0,
+                ]
+                return True
+
+        with TemporaryDirectory() as temp_dir, patch.dict(
+            "os.environ", {TDX_HISTORY_DIR_ENV: temp_dir}
+        ), patch("DataAPI.TqSdkAPI.TQSDK_CONFIG_PATH", Path(temp_dir) / "tqsdk.config"), patch.dict(
+            "sys.modules", {"tqsdk": make_fake_tqsdk_module()}
+        ):
+            root = Path(temp_dir)
+            (Path(temp_dir) / "tqsdk.config").write_text("TQSDK_FETCH_WAIT_SECONDS=0.2\n")
+            write_exported_1min_csv(
+                root,
+                "sh000852",
+                [[pd.Timestamp("2026-06-26 15:00"), 10.0, 10.5, 9.8, 10.2, 100.0, 10]],
+            )
+
+            previous_api = CTqSdk.api
+            fake_api = FakeApi()
+            CTqSdk.api = fake_api
+            try:
+                bars = list(
+                    CTqSdk(
+                        "SSE.000852",
+                        KL_TYPE.K_1M,
+                        begin_date="2026-07-01",
+                        end_date="2026-07-01 09:31",
+                    ).get_kl_data()
+                )
+            finally:
+                CTqSdk.api = previous_api
+
+        self.assertEqual([("SSE.000852", 60, 10000)], fake_api.calls)
+        self.assertEqual(1, fake_api.waits)
+        self.assertEqual(["2026/07/01 09:31"], [bar.time.to_str() for bar in bars])
+        self.assertEqual(11.2, bars[0].close)
+
     def test_empty_tqsdk_serial_is_reported_as_no_data(self):
         class FakeApi:
             def get_kline_serial(self, symbol, duration_seconds, data_length):
