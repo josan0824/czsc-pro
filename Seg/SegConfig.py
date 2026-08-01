@@ -3,7 +3,7 @@ from Common.ChanException import CChanException, ErrCode
 
 
 class CSegConfig:
-    def __init__(self, seg_algo="chan", left_method="peak", seg_lv=None, zs_scene=True):
+    def __init__(self, seg_algo="chan", left_method="peak", seg_lv=None, zs_scene=False):
         self.seg_algo = seg_algo
         self.seg_lv = seg_lv
         self.zs_scene = zs_scene

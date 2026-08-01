@@ -76,6 +76,10 @@ class TestSegV2ZSSceneSmoke(unittest.TestCase):
         )
         return chan
 
+    def test_zs_scene_defaults_off(self):
+        config = CChanConfig({"seg_algo": "chan_v2"})
+        self.assertFalse(config.seg_conf.zs_scene)
+
     def test_runs_with_zs_scene_on(self):
         chan = self._run(zs_scene=True)
         segs = chan.kl_datas[KL_TYPE.K_DAY].seg_list

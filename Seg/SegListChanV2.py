@@ -73,7 +73,7 @@ class CEigenFXV2(CEigenFX):
     都会进入后续相反特征分型确认和同类更极端候选替代流程。
     """
 
-    def __init__(self, _dir: BI_DIR, exclude_included=True, lv=SEG_TYPE.BI, allow_first_second_include: bool = False, zs_scene: bool = True):
+    def __init__(self, _dir: BI_DIR, exclude_included=True, lv=SEG_TYPE.BI, allow_first_second_include: bool = False, zs_scene: bool = False):
         super(CEigenFXV2, self).__init__(_dir, exclude_included=exclude_included, lv=lv)
         self.allow_first_second_include = allow_first_second_include
         self.zs_scene_enabled = zs_scene

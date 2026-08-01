@@ -32,7 +32,7 @@ class CChanConfig:
             seg_algo=conf.get("seg_algo", "chan"),
             left_method=conf.get("left_seg_method", "peak"),
             seg_lv=conf.get("seg_lv", None),
-            zs_scene=conf.get("chan_v2_zs_scene", True),
+            zs_scene=conf.get("chan_v2_zs_scene", False),
         )
         self.zs_conf = CZSConfig(
             need_combine=conf.get("zs_combine", True),
