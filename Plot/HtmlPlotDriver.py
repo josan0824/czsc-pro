@@ -726,9 +726,7 @@ window.addEventListener('message', function(event) {{
     <button class="logic-tab" type="button" data-logic-tab="gap">缺口处理</button>
     <button class="logic-tab" type="button" data-logic-tab="segment">段划分</button>
     <button class="logic-tab" type="button" data-logic-tab="segment-v2">线段v2.0</button>
-    <button class="logic-tab" type="button" data-logic-tab="segment-doubao">线段-豆包</button>
-    <button class="logic-tab" type="button" data-logic-tab="segment-doubao2">线段-豆包2</button>
-    <button class="logic-tab" type="button" data-logic-tab="segment-doubao3">线段-豆包3</button>
+    <button class="logic-tab" type="button" data-logic-tab="segment-zs">线段中枢</button>
     <button class="logic-tab" type="button" data-logic-tab="report">表格口径</button>
   </div>
   <section class="logic-tab-panel active" data-logic-panel="include">
@@ -914,201 +912,94 @@ window.addEventListener('message', function(event) {{
   <section class="logic-tab-panel" data-logic-panel="segment-v2">
     {segment_v2_md_html}
   </section>
-  <section class="logic-tab-panel" data-logic-panel="segment-doubao">
-    <h2>8. 线段-豆包</h2>
-    <p><code>seg_algo=chan_doubao</code> 是在默认 <code>chan</code> 特征序列线段算法上增加的端点替换实验模式。它不改变前置的包含处理、分型过滤、成笔规则，也不改变特征序列确认主干；只在候选线段终点落定时，加一条“同类型极值不能跨过反向有效笔端点替换”的规则。</p>
+  <section class="logic-tab-panel" data-logic-panel="segment-zs">
+    <h2>8. 线段中枢</h2>
+    <p>线段中枢不是在原始 K 线或笔上直接画出来的。当前实现先用有效笔列表划出线段，再把“线段列表”当作更高一级走势元素，继续划分“线段的线段”，最后在这些高一级线段内部，用线段之间的价格重叠区间生成线段中枢。</p>
     <div class="logic-grid">
       <div class="logic-card">
-        <h3>总览</h3>
-        <p>输入仍然是已经确认出来的有效笔列表。系统先按 <code>chan</code> 的方式寻找线段结束证据，再在本次确认窗口内检查候选终点是否允许替换为同方向更极端端点。</p>
-        <p>如果候选终点和后续同方向极值之间已经出现反向有效笔端点，前一个候选终点视为锁定，后续更极端端点不能回头替代它。</p>
+        <h3>计算链路</h3>
+        <p><code>cal_seg_and_zs()</code> 会先执行 <code>cal_seg(self.bi_list, self.seg_list)</code> 得到普通线段，然后执行 <code>cal_seg(self.seg_list, self.segseg_list)</code>，把线段再次划成更高一级的段。</p>
+        <p>线段中枢随后由 <code>self.segzs_list.cal_bi_zs(self.seg_list, self.segseg_list)</code> 生成。这里的“bi_lst”实际传入的是 <code>seg_list</code>，所以中枢构件是线段，不是笔。</p>
       </div>
       <div class="logic-card">
-        <h3>当前代码入口</h3>
-        <p>页面选择 <code>线段 doubao</code> 后，配置值会传入 <code>seg_algo=chan_doubao</code>，最终由 <code>CSegListChanDoubao</code> 计算线段。</p>
+        <h3>代码入口</h3>
         <pre><code>update()
-  do_init()
-  cal_seg_sure()
-  extend_confirmed_seg_extremes()
-  collect_left_seg()</code></pre>
+  cal_seg_and_zs()
+    cal_seg(bi_list, seg_list)
+    zs_list.cal_bi_zs(bi_list, seg_list)
+    cal_seg(seg_list, segseg_list)
+    segzs_list.cal_bi_zs(seg_list, segseg_list)
+    update_zs_in_seg(seg_list, segseg_list, segzs_list)</code></pre>
       </div>
       <div class="logic-card">
-        <h3>不改变的部分</h3>
-        <p>它不重新定义 K 线包含、顶底分型、成笔、笔缺口、笔列表和中枢计算。线段端点仍然只能取自笔端点，不会直接连到原始 K 线的普通高低点。</p>
+        <h3>图上对象</h3>
+        <p>图上的“线段中枢”矩形来自 <code>meta.segzs_lst</code>，绘图时与笔中枢一起进入 <code>collect_zs_rects()</code>。笔中枢标记为 <code>level=bi</code>，线段中枢标记为 <code>level=seg</code>。</p>
+        <p>矩形横向范围来自中枢起止线段覆盖的 K 线区间，纵向范围来自中枢价格区间 <code>[low, high]</code>。</p>
       </div>
       <div class="logic-card">
-        <h3>核心差异</h3>
-        <p>默认 <code>chan</code> 在特征序列确认后直接使用特征序列峰值笔作为线段终点；<code>chan_doubao</code> 会先用同类型替换规则检查该终点是否可以往后移动，但移动不能跨过反向有效笔。</p>
+        <h3>会随什么变化</h3>
+        <p>线段中枢依赖 <code>seg_list</code> 和 <code>segseg_list</code>。只要页面上方切换 <code>seg_algo</code> 导致线段端点变化，线段的线段和线段中枢都会重新计算。</p>
+        <p><code>zs_algo</code>、<code>zs_combine</code>、<code>zs_combine_mode</code>、<code>one_bi_zs</code> 这些中枢配置也会影响线段中枢的生成、延伸和合并。</p>
       </div>
     </div>
-    <h3>名字解释</h3>
+    <h3>构件与区间</h3>
     <div class="logic-rule-table">
-      <div><strong>有效笔序列</strong><span>已经通过分型过滤、跨度、区间分离、缺口破格等规则生成的笔列表。线段算法只读取这份笔序列。</span></div>
-      <div><strong>线段</strong><span>由连续笔构成的更高一级结构。线段起点是第一笔的起点，终点是最后一笔的终点；已确认线段至少三笔。</span></div>
-      <div><strong>特征序列</strong><span>判断当前线段是否结束时抽取的反向笔集合。上升段取下降笔作为特征序列；下降段取上升笔作为特征序列。</span></div>
-      <div><strong>特征序列分型</strong><span>特征序列内部形成的顶/底分型。它是默认 <code>chan</code> 判断线段结束的核心证据。</span></div>
-      <div><strong>候选终点</strong><span><code>fx_eigen.GetPeakBiIdx()</code> 给出的峰值笔。它是默认 <code>chan</code> 会尝试作为线段结束点的笔。</span></div>
-      <div><strong>确认窗口</strong><span>从候选终点到确认证据笔 <code>last_evidence_bi</code> 之间的笔区间；如果没有证据笔，则到当前笔列表尾部。</span></div>
-      <div><strong>同类型端点</strong><span>和候选终点方向相同的笔端点。下降终点看更低低点，向上终点看更高高点。</span></div>
-      <div><strong>反向有效笔端点</strong><span>确认窗口内第一根方向不同的有效笔端点。它一旦出现，就表示前一个同类端点已经不能继续被后面的同类极值替换。</span></div>
-      <div><strong>更极端</strong><span>下降笔用 <code>_low()</code> 比较，更低才算更极端；上升笔用 <code>_high()</code> 比较，更高才算更极端。</span></div>
-      <div><strong>锁定</strong><span>两个同类端点之间出现反向有效笔端点后，前一个同类端点固定为当前段终点，不允许后续更低底或更高顶回头替换。</span></div>
+      <div><strong>普通线段</strong><span><code>seg_list</code> 由有效笔划出。每条线段有 <code>start_bi</code>、<code>end_bi</code>、<code>dir</code>、<code>is_sure</code>，并通过 <code>_high()</code>/<code>_low()</code> 提供自己的价格区间。</span></div>
+      <div><strong>线段的线段</strong><span><code>segseg_list</code> 是在 <code>seg_list</code> 上再次执行线段算法得到的高一级段。它决定线段中枢按哪些线段区间分组计算。</span></div>
+      <div><strong>线段中枢</strong><span><code>segzs_list</code> 里的每个 <code>CZS</code>。它的内部元素是普通线段；<code>begin_bi</code>/<code>end_bi</code> 在这里实际指中枢内部第一条/最后一条线段。</span></div>
+      <div><strong>价格上沿</strong><span><code>high = min(item._high() for item in lst)</code>，取参与构造的线段高点最小值，也就是重叠区间上沿。</span></div>
+      <div><strong>价格下沿</strong><span><code>low = max(item._low() for item in lst)</code>，取参与构造的线段低点最大值，也就是重叠区间下沿。</span></div>
+      <div><strong>成立条件</strong><span>只有 <code>min_high &gt; max_low</code> 时才生成中枢。等于不算成立，因为代码要求严格大于。</span></div>
+      <div><strong>外围极值</strong><span><code>peak_high</code>/<code>peak_low</code> 记录中枢涉及线段的最高/最低外扩范围，用于背驰、合并和图上辅助判断；它不等同于中枢本体 <code>[low, high]</code>。</span></div>
+      <div><strong>确认状态</strong><span>中枢的 <code>is_sure</code> 跟传入构件所属高一级段状态走。未确认尾部生成的线段中枢在图上可能随新数据改写。</span></div>
     </div>
-    <h3>完整划分流程</h3>
+    <h3>生成流程</h3>
     <div class="logic-rule-table">
-      <div><strong>1. 清理尾部</strong><span>每次更新先执行 <code>do_init()</code>。继承自 <code>chan</code> 的逻辑会删除末尾未确认线段；如果最后一个已确认线段依赖的特征序列尾元素仍未确认，也会回退重算。</span></div>
-      <div><strong>2. 确定扫描起点</strong><span>如果当前没有线段，从第 0 笔开始扫描；如果已有确认线段，则从最后一段终点的下一笔开始继续扫描。</span></div>
-      <div><strong>3. 构造特征序列</strong><span>沿笔列表向后扫描。遇到下降笔且当前不在上升段尾部禁用状态时，加入上升段结束用的下降特征序列；遇到上升笔且当前不在下降段尾部禁用状态时，加入下降段结束用的上升特征序列。</span></div>
-      <div><strong>4. 首段方向预判</strong><span>第一段还没有方向时，不是谁先形成分型就立即决定方向。代码会看上升/下降两套特征序列是否已经出现第二个元素，并据此清理另一套临时序列。</span></div>
-      <div><strong>5. 发现特征分型</strong><span>当某套特征序列形成有效特征分型后，进入 <code>treat_fx_eigen()</code>。这一步仍然沿用 <code>chan</code> 的特征序列确认入口。</span></div>
-      <div><strong>6. 判断是否能结束</strong><span>执行 <code>fx_eigen.can_be_end(bi_lst)</code>。返回 <code>True</code> 表示找到正常确认；返回 <code>None</code> 表示扫到尾部也没有新的反向证据，生成未确认或尾部候选；返回其他结果则说明当前分型证据不足，要从特征序列第二元素位置继续扫描。</span></div>
-      <div><strong>7. 取默认候选终点</strong><span>当返回 <code>True</code> 或 <code>None</code> 时，先取 <code>fx_eigen.GetPeakBiIdx()</code> 作为默认候选终点。这一步与默认 <code>chan</code> 一致。</span></div>
-      <div><strong>8. 确定确认窗口</strong><span>如果 <code>fx_eigen</code> 上存在 <code>last_evidence_bi</code>，窗口结束点取该证据笔；否则窗口结束点取当前笔列表最后一笔。</span></div>
-      <div><strong>9. 执行豆包替换</strong><span>从候选终点开始，按同方向笔逐根向后扫描。只要后续同方向端点更极端，就替换候选终点；一旦遇到第一根反向有效笔，立即停止扫描。</span></div>
-      <div><strong>10. 添加新线段</strong><span>用替换后的终点执行 <code>add_new_seg()</code>。如果 <code>can_be_end</code> 返回 <code>True</code> 且特征序列所有笔都确认，则新线段为已确认；否则为未确认。</span></div>
-      <div><strong>11. 递归继续确认</strong><span>如果本次线段已确认，则从新线段终点的下一笔继续调用 <code>cal_seg_sure()</code>，尝试确认后续线段。</span></div>
-      <div><strong>12. 后处理已确认段</strong><span>所有确认流程完成后，执行 <code>extend_confirmed_seg_extremes()</code>。它只检查已确认段和后一段之间是否还有可替换的同方向极值，并且同样不能跨过反向有效笔端点。</span></div>
-      <div><strong>13. 重置被影响区间</strong><span>如果第 12 步确实发生替换，会重置当前段和下一段的起止笔、笔列表、趋势线和中枢列表，再重新检查线段合法性。</span></div>
-      <div><strong>14. 收集剩余尾段</strong><span>最后执行 <code>collect_left_seg()</code>。如果末尾还有未纳入确认线段的笔，会按尾段规则收集为未确认线段；豆包模式的尾段同样使用“遇到反向有效笔就停止”的替换规则。</span></div>
+      <div><strong>1. 删除可变尾部</strong><span><code>CZSList.cal_bi_zs()</code> 会先删除 <code>begin_bi.idx &gt;= last_sure_pos</code> 的旧中枢，避免未确认尾段变化后残留旧矩形。</span></div>
+      <div><strong>2. 按高一级段分区</strong><span>默认 <code>zs_algo=normal</code> 时，遍历 <code>segseg_list</code>。每个高一级段单独清空临时列表，只在该高一级段内部计算线段中枢。</span></div>
+      <div><strong>3. 只取反向线段</strong><span><code>add_zs_from_bi_range()</code> 会跳过与高一级段方向相同的线段，只把反向线段放进中枢候选。这和笔中枢在普通线段内只取反向笔的口径一致。</span></div>
+      <div><strong>4. 临时候选列表</strong><span>反向线段先进入 <code>free_item_lst</code>。若配置 <code>one_bi_zs=False</code>，普通模式只用最近两条反向线段尝试构造中枢；若开启一笔中枢，则单条线段也可能构造中枢。</span></div>
+      <div><strong>5. 重叠判断</strong><span>构造时计算 <code>min_high</code> 和 <code>max_low</code>。若 <code>min_high &gt; max_low</code>，创建 <code>CZS</code>，其中 <code>low=max_low</code>、<code>high=min_high</code>。</span></div>
+      <div><strong>6. 禁止首元素起中枢</strong><span><code>add_to_free_lst()</code> 要求新中枢 <code>begin_bi.idx &gt; 0</code> 才会加入列表，所以不会把全序列第一条线段直接作为中枢起点。</span></div>
+      <div><strong>7. 延伸已有中枢</strong><span>如果临时候选为空，先尝试把新线段加入最后一个中枢。只要该线段价格区间与中枢 <code>[low, high]</code> 有重叠，<code>try_add_to_end()</code> 就会延伸中枢终点和外围极值。</span></div>
+      <div><strong>8. 合并相邻中枢</strong><span>默认 <code>zs_combine=True</code>。新中枢形成或旧中枢延伸后，<code>try_combine()</code> 会检查最后两个中枢是否可合并。</span></div>
+      <div><strong>9. 处理未成新高一级段的尾部</strong><span>如果 <code>segseg_list</code> 已经存在，最后还会用 <code>seg_list[segseg_list[-1].end_bi.idx+1:]</code> 计算未生成新高一级段的尾部中枢，确认状态传 <code>False</code>。</span></div>
+      <div><strong>10. 回填所属关系</strong><span><code>update_zs_in_seg(seg_list, segseg_list, segzs_list)</code> 会把线段中枢挂回对应高一级段，同时设置进中枢线段、出中枢线段和中枢内部线段列表。</span></div>
     </div>
-    <h3>豆包替换规则细节</h3>
+    <h3>合并与显示</h3>
     <div class="logic-grid">
       <div class="logic-card">
-        <h3>替换函数</h3>
-        <p>核心函数是 <code>_replace_until_opposite_fx()</code>。它要求扫描起点方向必须等于目标方向，否则不替换。</p>
-        <pre><code>candidate = begin_bi
-for bi in begin_next ... window_end:
-  if bi.dir != target_dir:
-    break
-  if bi is more extreme:
-    candidate = bi</code></pre>
+        <h3>zs 合并模式</h3>
+        <p><code>zs_combine_mode=zs</code> 时，只有两个中枢本体区间 <code>[low, high]</code> 有重叠或贴边，才会合并。合并后新区间取两个中枢本体区间的外包范围。</p>
       </div>
       <div class="logic-card">
-        <h3>为什么遇到反向就停</h3>
-        <p>你的新规则认为：同类型分型之间如果夹了一个反向分型端点，前一个同类端点对应的线段已经被反向结构确认，不能再被后面的同类极值回头改写。</p>
+        <h3>peak 合并模式</h3>
+        <p><code>zs_combine_mode=peak</code> 时，用外围极值区间 <code>[peak_low, peak_high]</code> 判断是否合并。这个模式更宽松，因为外围区间通常大于中枢本体区间。</p>
       </div>
       <div class="logic-card">
-        <h3>下降段例子</h3>
-        <p>A 顶到 B 底形成候选下降段。如果 B 后面没有反向上笔，且出现更低 C 底，可以把终点替换到 C；如果 B 和 C 中间先出现了反向上笔，则 B 锁定，C 不能替换 B。</p>
+        <h3>子中枢</h3>
+        <p>发生合并时，原来的中枢会保存到 <code>sub_zs_lst</code>。绘图时主中枢画为 <code>level=seg</code>，子中枢会额外输出为 <code>level=seg-sub</code>。</p>
       </div>
       <div class="logic-card">
-        <h3>上升段例子</h3>
-        <p>A 底到 B 顶形成候选上升段。如果 B 后面没有反向下笔，且出现更高 C 顶，可以把终点替换到 C；如果中间先出现了反向下笔，则 B 锁定。</p>
+        <h3>矩形尺寸</h3>
+        <p>横坐标从 <code>zs.begin</code> 到 <code>zs.end</code> 对应的 K 线范围；纵坐标从 <code>zs.high</code> 到 <code>zs.low</code>。如果价格高度太小，图上会用最小 5 像素高度保证可见。</p>
       </div>
     </div>
     <h3>边界与注意事项</h3>
     <div class="logic-rule-table">
-      <div><strong>旧模式不变</strong><span>只有选择 <code>chan_doubao</code> 时使用本规则。<code>chan</code>、<code>chan_v2</code>、<code>1+1</code>、<code>break</code> 的计算入口不受影响。</span></div>
-      <div><strong>不能跨笔端点</strong><span>本规则只看有效笔端点方向，不直接读取原始 K 线内部的普通高低点；未成为有效笔端点的分型不会直接改变线段终点。</span></div>
-      <div><strong>不能跨反向端点</strong><span>这是当前豆包模式最重要的限制。即使后面同方向端点更极端，只要中间出现过反向有效笔端点，就不能替换。</span></div>
-      <div><strong>确认逻辑仍归 chan</strong><span>线段是否结束，仍由特征序列分型和 <code>can_be_end()</code> 决定；豆包规则只负责在可结束窗口内选择更合适的线段终点。</span></div>
-      <div><strong>未确认尾段可能变化</strong><span>最后一段如果状态是未确认，后续新笔仍可能导致它被删除、重算或改写；已确认段只会在后处理窗口内按上述规则有限调整。</span></div>
-      <div><strong>输出更保守</strong><span>相比“直接在窗口内取最高/最低”的方案，当前规则更保守。因为有效笔通常顶底交替，反向端点会很快锁定前一个同类端点。</span></div>
-    </div>
-  </section>
-  <section class="logic-tab-panel" data-logic-panel="segment-doubao2">
-    <h2>9. 线段-豆包2</h2>
-    <p><code>seg_algo=chan_doubao2</code> 按 <code>docs/豆包生成规则.doc</code> 的执行流程实现，是一套独立于 <code>chan_doubao</code> 端点替换模式的线段划分算法。它仍然只读取已经生成的有效笔列表，但完整重走特征序列包含、缺口确认和反向线段校验。</p>
-    <div class="logic-grid">
-      <div class="logic-card">
-        <h3>当前代码入口</h3>
-        <p>页面选择 <code>线段 doubao2</code> 后，配置值会传入 <code>seg_algo=chan_doubao2</code>，最终由 <code>CSegListChanDoubao2</code> 计算线段。</p>
-        <pre><code>update()
-  do_init()
-  cal_bi_sure()
-  collect_left_seg()</code></pre>
-      </div>
-      <div class="logic-card">
-        <h3>线段门槛</h3>
-        <p>确认段至少需要三笔。相邻线段方向严格交替，后一线段从前一线段终点后一笔开始延续；剩余不足确认条件的走势交给尾段收集逻辑生成未确认段。</p>
-      </div>
-      <div class="logic-card">
-        <h3>特征序列</h3>
-        <p>判断向上线段是否结束时收集下降笔；判断向下线段是否结束时收集上升笔。未确认结束前，右侧走势仍先归入当前线段的扫描窗口。</p>
-      </div>
-      <div class="logic-card">
-        <h3>线段破坏</h3>
-        <p>单笔反向冲击不能直接确认原线段终结。算法必须从候选终点后一笔开始看到三笔交替且前三笔价格区间重叠，才认为反向线段成立。</p>
-      </div>
-    </div>
-    <h3>包含处理</h3>
-    <div class="logic-rule-table">
-      <div><strong>第 1、2 元素</strong><span>仅允许左包右合并，禁止右包左合并，用来保留顶底两侧特征序列的原始关系。</span></div>
-      <div><strong>第 2 元素之后</strong><span>左包右、右包左都允许合并，处理顺序从左到右。</span></div>
-      <div><strong>向上线段</strong><span>特征序列是下降笔，包含合并取“低低”：高点取较小值，低点也取较小值。</span></div>
-      <div><strong>向下线段</strong><span>特征序列是上升笔，包含合并取“高高”：高点取较大值，低点也取较大值。</span></div>
-    </div>
-    <h3>确认流程</h3>
-    <div class="logic-rule-table">
-      <div><strong>1. 起段</strong><span>从当前未归属的第一笔开始，线段方向取该笔方向。</span></div>
-      <div><strong>2. 收集特征</strong><span>向后遍历笔列表，只把反向笔加入当前线段的特征序列。</span></div>
-      <div><strong>3. 合并特征</strong><span>每加入新特征元素后，按豆包2包含规则重新得到合并后的特征序列。</span></div>
-      <div><strong>4. 判断分型</strong><span>向上线段要求特征序列形成顶分型；向下线段要求特征序列形成底分型。</span></div>
-      <div><strong>5. 无缺口</strong><span>第 1、2 特征元素无价格缺口时，分型只是必要条件；还要校验候选终点后是否走出完整反向三笔线段。</span></div>
-      <div><strong>6. 有缺口</strong><span>第一组分型只作为预警，不能直接终结原线段；后续再出现一组特征分型，并且预警终点后反向三笔成立，才确认原线段结束。</span></div>
-      <div><strong>7. 生成线段</strong><span>确认后生成当前段，并从确认终点后一笔继续扫描下一段。</span></div>
-      <div><strong>8. 收尾</strong><span>如果后续无法确认新段，则保留已有确认段，再由通用尾段逻辑收集最后未确认走势。</span></div>
+      <div><strong>不是场景笔中枢</strong><span>这个页签说明的是正式 <code>segzs_list</code>。它不同于线段 v2.0 里曾用于端点替代的“场景笔中枢”检测；后者现在默认关闭，且只影响线段端点候选，不是这里的线段中枢矩形。</span></div>
+      <div><strong>不是直接三段重叠</strong><span>默认 <code>one_bi_zs=False</code> 且 <code>zs_algo=normal</code> 时，普通模式构造时取最近两条反向线段尝试重叠，不是简单拿任意连续三条线段直接求交。</span></div>
+      <div><strong>严格重叠</strong><span>新建中枢要求 <code>min_high &gt; max_low</code>；只有贴边但没有价格厚度的区间不会新建中枢。合并时 <code>zs</code> 模式允许贴边重叠。</span></div>
+      <div><strong>跨段算法</strong><span>若 <code>zs_algo=over_seg</code>，会改用跨段更新逻辑，要求最近三项形成重叠，并额外检查父级线段方向。若 <code>zs_algo=auto</code>，会根据是否已有确认高一级段在 normal 与 over_seg 之间切换。</span></div>
+      <div><strong>尾部会改写</strong><span>未确认线段、未确认高一级段和尾部中枢都可能随新 K 线变化而删除重算。图上虚实和最后几个矩形要按当前数据快照理解。</span></div>
+      <div><strong>下游影响</strong><span>线段中枢会影响线段级买卖点、背驰判断和报告表格。修改线段算法或中枢合并参数后，下游结果应一起重新核对。</span></div>
     </div>
     <div class="logic-example">
-      <strong>实现口径：</strong><code>chan_doubao2</code> 不是 <code>chan_doubao</code> 的小改版；它按文档伪代码把“缺口预警 + 二次确认 + 反向三笔重叠”作为核心确认链路。
-    </div>
-  </section>
-  <section class="logic-tab-panel" data-logic-panel="segment-doubao3">
-    <h2>10. 线段-豆包3</h2>
-    <p><code>seg_algo=chan_doubao3</code> 按 <code>docs/新豆包规则 和代码.doc</code> 的 TypeScript 流程实现。它是独立算法，不覆盖 <code>chan_doubao2</code>；页面参数也支持 <code>doubao3</code>、<code>doubao_v3</code> 和 <code>douban_v3</code> 别名。</p>
-    <div class="logic-grid">
-      <div class="logic-card">
-        <h3>当前代码入口</h3>
-        <p>选择 <code>线段 doubao3</code> 后，配置值进入 <code>CSegListChanDoubao3</code>。算法先按新文档生成计划线段，再映射成项目可承载的 <code>CSeg</code>。</p>
-        <pre><code>update()
-  do_init()
-  _compute_plan()
-  _merge_same_direction()
-  _apply_plan()</code></pre>
-      </div>
-      <div class="logic-card">
-        <h3>分型方向</h3>
-        <p>向上线段的特征序列是下降笔，寻找底分型；向下线段的特征序列是上升笔，寻找顶分型。这一点和旧 <code>chan_doubao2</code> 不同。</p>
-      </div>
-      <div class="logic-card">
-        <h3>第 1、2 元素</h3>
-        <p>第 1、2 特征元素只允许左包右。若右包左，不合并也不追加右侧元素，继续保留第 1 个元素参与后续判断。</p>
-      </div>
-      <div class="logic-card">
-        <h3>端点适配</h3>
-        <p>新文档模型允许相邻线段共享同一笔端点。项目内部线段必须连续分段，因此实现会把文档端点映射到上一段的 <code>endpoint - 1</code>，下一段从文档端点开始。</p>
-      </div>
-    </div>
-    <h3>确认流程</h3>
-    <div class="logic-rule-table">
-      <div><strong>1. 构造特征序列</strong><span>从当前搜索起点到笔列表末尾，抽取当前线段反向笔作为特征元素。</span></div>
-      <div><strong>2. 包含处理</strong><span>第 1、2 元素仅左包右；如果第 1 个元素包含第 2 个元素，保留第 1 个元素并记录第 2 个被并入；如果第 2 个元素包含第 1 个元素，不合并、不追加第 2 个元素，继续保留第 1 个元素。第 3 个元素开始才允许双向合并。</span></div>
-      <div><strong>2a. 上升段取低低</strong><span>当前线段向上时，特征序列是下降笔。第 3 个元素以后若发生包含，合并后高点取两者较低值、低点也取两者较低值，也就是向下包含的“低低”。</span></div>
-      <div><strong>2b. 下降段取高高</strong><span>当前线段向下时，特征序列是上升笔。第 3 个元素以后若发生包含，合并后高点取两者较高值、低点也取两者较高值，也就是向上包含的“高高”。</span></div>
-      <div><strong>3. 找第一分型</strong><span>处理后的特征序列里取第一组有效分型。向上线段找底分型，向下线段找顶分型。</span></div>
-      <div><strong>4. 无缺口</strong><span>第一分型无缺口时，先认为当前线段终结，终结类型记为 <code>doubao3_no_gap</code>。</span></div>
-      <div><strong>5. 有缺口</strong><span>第一分型有缺口时，从该分型后一笔开始构建反向线段的特征序列；若反向序列出现分型，原线段才确认终结，终结类型记为 <code>doubao3_with_gap</code>。</span></div>
-      <div><strong>6. 反向确认</strong><span>生成当前计划线段后，再检查文档端点开始是否存在三笔交替且前三笔价格区间重叠。若不成立，则停止继续向后划分。</span></div>
-      <div><strong>7. 尾段</strong><span>特征元素不足、包含后不足、找不到分型或有缺口无法确认时，剩余部分生成未确认尾段，原因记为 <code>doubao3_initial</code>。</span></div>
-      <div><strong>8. 同向合并</strong><span>计划线段生成后，如果出现连续同方向线段，会按新文档流程先合并再写入项目线段列表。</span></div>
-    </div>
-    <h3>复杂情况一：特征序列包含</h3>
-    <div class="logic-rule-table">
-      <div><strong>原文图对应含义</strong><span>前一组特征序列已经形成分型；后一组特征序列因为元素之间存在包含关系，包含处理后分型不成立。因此从当前起点到最后只能确认一段，而不是拆成三段。</span></div>
-      <div><strong>第 1、2 元素左包右</strong><span>若第 1 个元素区间为 <code>[10, 20]</code>，第 2 个元素为 <code>[12, 18]</code>，第 1 个元素包含第 2 个元素；代码保留第 1 个元素，并把第 2 个元素记入 <code>merged_from</code>。</span></div>
-      <div><strong>第 1、2 元素右包左</strong><span>若第 1 个元素为 <code>[12, 18]</code>，第 2 个元素为 <code>[10, 20]</code>，第 2 个元素包含第 1 个元素；新豆包规则不允许右包左合并，代码不会追加第 2 个元素，仍用第 1 个元素等待后续元素。</span></div>
-      <div><strong>第 3 个以后双向</strong><span>一旦结果序列里已经有两个以上元素，后续相邻元素只要有包含关系就合并；此时不再区分左包右还是右包左，而是按线段方向取低低或高高。</span></div>
-      <div><strong>上升段例子</strong><span>向上线段取下降笔。若后续下降特征元素 <code>D4=[15, 25]</code>、<code>D6=[12, 22]</code> 包含，合并成 <code>[12, 22]</code>；低点和高点都取较低值。合并后若不足三元素或中间低点不再最低，就不能形成底分型。</span></div>
-      <div><strong>下降段例子</strong><span>向下线段取上升笔。若后续上升特征元素 <code>U4=[15, 25]</code>、<code>U6=[18, 28]</code> 包含，合并成 <code>[18, 28]</code>；低点和高点都取较高值。合并后若中间高点不再最高，就不能形成顶分型。</span></div>
-      <div><strong>代码核对点</strong><span>对应 <code>CSegListChanDoubao3._process_inclusion()</code>：<code>len(result) == 1</code> 时只处理左包右；之后按 <code>seg_dir == UP</code> 取 <code>min(high), min(low)</code>，否则取 <code>max(high), max(low)</code>。</span></div>
-      <div><strong>图上核对点</strong><span>如果你看到后一组走势有多根反向笔互相包含，但线段没有在中间拆开，先打开“特征”框看包含后是否还能留下三组有效特征元素；如果不能，按规则就应当保持原线段延续。</span></div>
-    </div>
-    <div class="logic-example">
-      <strong>核心区别：</strong><code>chan_doubao3</code> 按新文档规则执行；它和 <code>chan_doubao2</code> 的主要差异在分型方向、第 1/2 元素包含处理、无缺口先终结后确认、以及同向线段后处理合并。
+      <strong>快速核对：</strong>如果你想知道某个线段中枢为什么出现，先看图上的普通线段端点，再看这些线段被更高一级 <code>segseg_list</code> 分到哪个区间；在该区间内，反向线段价格区间出现严格重叠，就会形成中枢。随后若新线段仍与中枢区间重叠，则延伸；若新中枢与前一中枢满足合并条件，则合并成更大的矩形。
     </div>
   </section>
   <section class="logic-tab-panel" data-logic-panel="report">
-    <h2>11. 表格与图上标注口径</h2>
+    <h2>9. 表格与图上标注口径</h2>
     <p>报告里的图形和表格是为了复核计算过程，不是额外再跑一套规则。图上的三角形、虚线框、笔线和表格行都来自同一份分型与笔数据。</p>
     <h3>线段算法参数对比</h3>
     <p>页面上方的 <code>seg_algo</code> 会影响线段、线段中枢、线段买卖点以及图上的段线。分型列表和笔列表仍由前置分型/成笔逻辑生成，但段相关标注会按所选算法重新计算。</p>
